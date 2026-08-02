@@ -1,0 +1,6 @@
+[package]
+name = "p-lexer"
+edition.workspace = true
+version.workspace = true 
+
+[dependencies]
