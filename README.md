@@ -1,2 +1,2 @@
-# P-language-
-P programming language is a user friendly language for frontend programming that encapsulates html, css and JavaScript just to a single language 
+# P is a declarative, indentation-based language for building web applications without writing HTML tags, CSS selectors, or hand-rolled JavaScript DOM code.
+A single .p file compiles to real HTML, CSS, and JavaScript — and, optionally, to a small Node.js backend server that shares its data types with the frontend by construction
