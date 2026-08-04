@@ -291,7 +291,7 @@ impl Token {
 pub fn keyword_lookup(ident : &str) -> Option<TokenKind>{
     use TokenKind::*;
     Some(match ident {
-        "page " => Page,
+        "page" => Page,
         "component" => Component,
         "layout" => Layout,
         "state" => State,
@@ -346,4 +346,34 @@ pub fn keyword_lookup(ident : &str) -> Option<TokenKind>{
         _ => return None,
     })
 
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dummy_span() -> Span {
+        Span::new(0, 0, 1, 1)
+    }
+
+    #[test]
+    fn keyword_lookup_covers_every_grammar_9_keyword(){
+
+
+
+        let  keyword  = ["page", "component","layout","state", "fn", "let","return",
+                        "if" , "else", "for", "while","in", "import", "enum", "uses",
+                        "slot", "on","row", "column", "stack", "container", "card",
+                        "grid", "list", "text", "image", "icon", "input","textarea",
+                        "button","checkbox","switch","radio","dropdown","table",
+                        "navigation","tabs","dialog","modal","menu","and","or",
+                        "not", "Int", "Float","String", "Bool", "Color","Size",
+                        "Void","List","Map","Option", ];
+        
+        
+       
+        for kw in keyword {
+            assert!(keyword_lookup(kw).is_some(), "expected {kw:?} to be a recognized keyword")
+        }
+    }
 }

@@ -25,6 +25,19 @@ pub enum LexError{
 
 impl fmt::Display for LexError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "")
+        match self {
+            LexError::TabCharacter { line, col } => write!(f, "Tab character found at line {line}, column {col}"),
+            LexError::InconsistentDedent { line, col } => write!(f, "Inconsistent dedent at line {line}, column {col}"),
+            LexError::IndentNotMultipleOfUnit { line, col, unit } => write!(f, "Indentation at line {line}, column {col} is not a multiple of the unit size {unit}"),
+            LexError::UnterminatedString { line, col } => write!(f, "Unterminated string literal starting at line {line}, column {col}"),
+            LexError::UnterminatedBlockComment { line, col } => write!(f, "Unterminated block comment starting at line {line}, column {col}"),
+            LexError::InvalidEscape { line, col, ch } => write!(f, "Invalid escape sequence '\\{ch}' at line {line}, column {col}"),
+            LexError::InvalidNumber { line, col } => write!(f, "Invalid number format/literal at line {line}, column {col}"),
+            LexError::UnknownCharacter { line, col, ch } => write!(f, "Unknown character '{ch}' at line {line}, column {col}"),
+        }   
     }
 }
+impl  std::error::Error for LexError{
+    
+}
+
