@@ -364,7 +364,7 @@ mod tests {
         let  keyword  = ["page", "component","layout","state", "fn", "let","return",
                         "if" , "else", "for", "while","in", "import", "enum", "uses",
                         "slot", "on","row", "column", "stack", "container", "card",
-                        "grid", "list", "text", "image", "icon", "input","textarea",
+                        "grid",  "text", "image", "icon", "input","textarea",
                         "button","checkbox","switch","radio","dropdown","table",
                         "navigation","tabs","dialog","modal","menu","and","or",
                         "not", "Int", "Float","String", "Bool", "Color","Size",

@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{SizeUnit, Span, Token, TokenKind, token::keyword_lookup};
+use crate::token::{Token,TokenKind,SizeUnit,Span,keyword_lookup};
 
 // This is P scanner : source text file contains a list of tokens which will be Vec<Token>
 //
@@ -42,6 +42,12 @@ impl fmt::Display for LexError {
 impl  std::error::Error for LexError{
     
 }
+pub fn tokenize(source : &str) ->Result<Vec<Token>,LexError> {
+    let mut lexer = Lexer::new(source);
+    lexer.run()?;
+    Ok(lexer.tokens)
+
+}
 
 struct Lexer<'a> {
     #[allow(dead_code)]
@@ -72,7 +78,7 @@ impl <'a> Lexer<'a> {
     }
 
     fn byte_pos(&self)-> usize {
-        self.chars.get(self.idx).map(|&(b,_)|b).unwrap_or((self.source.len()))
+        self.chars.get(self.idx).map(|&(b,_)|b).unwrap_or(self.source.len())
     }
 
     fn here(&self) -> Span {
@@ -95,25 +101,85 @@ impl <'a> Lexer<'a> {
     }
 
     fn run(&mut self) -> Result<(), LexError>{
+        let spaces = self.skip_blank_and_comment_lines()?;
+        if self.peek().is_some(){
+            self.apply_identation(spaces)?;
+        }
+        let mut had_content = false;
+        loop {
+            match self.peek(){
+                None => break,
+                Some('\n') => {
+                    self.bump();
+                    if had_content{
+                        self.tokens.push(Token::new(TokenKind::Newline, self.here()));
+                    }
+                    had_content = false;
+                    if self.paren_depth == 0 {
+                        let spaces = self.skip_blank_and_comment_lines()?;
+                        if self.peek().is_some(){
+                            self.apply_identation(spaces)?;
+                        }
+                    }
+                }
+                Some('\t') => {return  Err(LexError::TabCharacter { line: self.line, col: self.col });}
+                Some(c) if c.is_whitespace() => {
+                    self.bump();
+                }
+                Some('/') if self.peek_at(1) == Some('/') => {
+                    self.skip_block_comment()?;
+                }
+                Some('"') => {
+                    self.scan_string_or_color()?;
+                    had_content = true;
+                }
+                Some(c) if c.is_ascii_digit() => {
+                    self.scan_number()?;
+                    had_content = true;
+                    
+                }
+                Some(c) if c.is_ascii_alphabetic() || c == '_' => {
+                    self.scan_indent_or_keyword();
+                    had_content = true;
+                }
+                Some(_) => {
+                    self.scan_operator_or_punct()?;
+                    had_content = true
+                }
+            }
+        }
+        if had_content {
+            self.tokens.push(Token::new(TokenKind::Newline, self.here()));
+        }
+        while self.indent_stack.len() > 1 {
+            self.indent_stack.pop();
+            self.tokens.push(Token::new(TokenKind::Dedent,self.here()));
+        }
+        self.tokens.push(Token::new(TokenKind::Eof, self.here()));
+        Ok(())
     
     }
 
-//Consumes any run of fully-blank lines and comment-only lines,
-//returning the leading space count of the first line that has 
-//real content (or 0 if EOF is reached first)
+   //Consumes any run of fully-blank lines and comment-only lines,
+      //returning the leading space count of the first line that has 
+       //real content (or 0 if EOF is reached first)
     fn skip_blank_and_comment_lines(&mut self) -> Result<usize, LexError>{
-        loop {
+        loop
+        {
             let mut spaces = 0usize;
             loop {
                 match self.peek(){
                     Some(' ') => {
-                        spaces += self.bump();
+                        spaces += 1;
+                         self.bump();
                     }
                     Some('\t') => {
-                        Err(LexError::TabCharacter { line: self.line, col: self.col });
+
+                        return Err(LexError::TabCharacter { line: self.line, col: self.col });
                     }
                     _ => break,
                 }
+            }
                 match self.peek() {
                     None => return Ok(0),
 
@@ -122,12 +188,24 @@ impl <'a> Lexer<'a> {
                         continue;
                     }
                     Some('/') if self.peek_at(1) == Some('/') => {
+                        self.skip_line_comment();
+                        continue;
                         
                     }
+                    Some('/') if self.peek_at(1) == Some('/') =>{
+                        self.skip_line_comment();
+                        continue;
+                        
+                    }
+                    Some('/') if self.peek_at(1) == Some('*') => {
+                        self.skip_block_comment()?;
+                        continue;
+                    }
+                    _ => return Ok(spaces),
                 }
             }
         }
-    }
+    
     fn skip_line_comment(&mut self){
         while let Some(c) = self.peek(){
             if c == '\n' {
@@ -174,7 +252,7 @@ impl <'a> Lexer<'a> {
                 None => self.indent_unit = Some(delta),
             }
             self.indent_stack.push(spaces);
-            self.tokens.push(Token::new((crate::TokenKind::Indent), self.here()));
+            self.tokens.push(Token::new(TokenKind::Indent, self.here()));
         }       else if spaces < current {
                      while *self.indent_stack.last().unwrap() > spaces {
                     self.indent_stack.pop();
@@ -318,9 +396,10 @@ impl <'a> Lexer<'a> {
         };
         self.tokens.push(Token::new(kind,start));
             
-        }
+    }
+    
 
-    fn scan_operator_or_punct(&mut self) -> Result<((), LexError)>{
+    fn scan_operator_or_punct(&mut self) -> Result<(), LexError>{
         let start = self.here();
         let c = self.bump().unwrap();
         let kind = match c {
@@ -389,14 +468,34 @@ impl <'a> Lexer<'a> {
                 }
             }
 
-            '<' => {
+            '>' => { 
+                if self.peek() == Some('='){
+                    self.bump();
+                    TokenKind::GtEq
+                } else {
+                    TokenKind::Gt
+                }
 
             }
-        }
+            other => {
+                return Err(LexError::UnknownCharacter { line: start.line, col: start.col, ch: other, })
+            }
+        };
+       
+        self.tokens.push(Token::new(kind, start));
+        
+        Ok(())
     }
+
+}
     
-            
-    }
+
+
+fn is_hex_color(s : &str) -> bool {
+    let Some(rest) = s.strip_prefix('#') else { return false ;};
+    matches!(rest.len(),3|4|6|8) && rest.chars().all(|c| c.is_ascii_hexdigit())
+}
+
     
 
 
