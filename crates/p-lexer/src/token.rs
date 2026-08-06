@@ -1,6 +1,9 @@
 use std::fmt;
 
+
 //Node Declaratives
+#[derive(Debug,Clone,Copy,PartialEq,Hash,Eq,PartialOrd, Ord)]
+pub struct FileId(pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Span {
@@ -14,14 +17,16 @@ pub struct Span {
     // 1-based column number of 'start'
     pub col : u32,
 
+    pub file : FileId,
+
 
 }
 
 // This is a constructor for the span, mostly when a span object get created or initialized
 
 impl  Span {
-    pub fn new(start : usize, end : usize, line: u32, col : u32) -> Self {
-        Self { start, end, line, col }
+    pub fn new(start : usize, end : usize, line: u32, col : u32, file : FileId) -> Self {
+        Self { start, end, line, col , file}
 
     }
 }
@@ -108,6 +113,32 @@ pub enum TokenKind {
     And,
     Or,
     Not,
+    Struct,
+    Await,
+    Fetch,
+    Route,
+    Body,
+    Get,
+    Post,
+    Put,
+    Delete,
+    Patch,
+
+    //For persistency
+    Store,
+
+    // Added for Javascript interoperability
+    Extern,
+    Client,
+    Server,
+    Global,
+    Module,
+    Npm,
+    As,
+
+    //Added for testing 
+    Test,
+    Assert,
 
 
     //-- Node-Kind keywords for P language
@@ -211,6 +242,28 @@ impl fmt::Display for TokenKind{
             And => write!(f, "and"),
             Or => write!(f, "or"),
             Not => write!(f,"not"),
+            Struct => write!(f,"struct"),
+            Await =>write!(f,"await"),
+            Fetch => write!(f, "fetch"),
+            Route => write!(f,"route"),
+            Body => write!(f, "body"),
+            Get => write!(f, "GET"),
+            Post => write!(f, "POST"),
+            Put => write!(f, "PUT"),
+            Delete => write!(f, "DELETE"),
+            Patch => write!(f, "PATCH"),
+            Store => write!(f, "store"),
+            Extern => write!(f, "extern"),
+            Client => write!(f, "client"),
+            Server => write!(f, "server"),
+            Global => write!(f, "global"),
+            Module => write!(f, "module"),
+            Npm => write!(f, "npm"),
+            As => write!(f, "as"),
+            Test => write!(f, "test"),
+            Assert => write!(f, "assert"),
+
+
             Row => write!(f,"row"),
             Column => write!(f, "column"),
             Stack => write!(f, "stack"),
@@ -353,7 +406,7 @@ mod tests {
     use super::*;
 
     fn dummy_span() -> Span {
-        Span::new(0, 0, 1, 1)
+        Span::new(0, 0, 1, 1, FileId(0))
     }
 
     #[test]

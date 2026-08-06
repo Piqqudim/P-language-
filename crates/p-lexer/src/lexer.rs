@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::token::{Token,TokenKind,SizeUnit,Span,keyword_lookup};
+use crate::token::{FileId, SizeUnit, Span, Token, TokenKind, keyword_lookup};
 
 // This is P scanner : source text file contains a list of tokens which will be Vec<Token>
 //
@@ -83,7 +83,7 @@ impl <'a> Lexer<'a> {
 
     fn here(&self) -> Span {
         let b = self.byte_pos();
-        Span { start: b, end: b , line: self.line, col: self.col }
+        Span { start: b, end: b , line: self.line, col: self.col, file: FileId(0) }
 
     // Advances one character, updating line/col,  Returns the consumed char
     }
