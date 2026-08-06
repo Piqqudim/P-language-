@@ -7,7 +7,8 @@ pub struct FileId(pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Span {
-    
+
+    pub file : FileId,
     //Byte offset of the first character
     pub start : usize,
     //Byte offset one past the last character so that [span.start..span.end] is always the exact lexeme
@@ -17,7 +18,7 @@ pub struct Span {
     // 1-based column number of 'start'
     pub col : u32,
 
-    pub file : FileId,
+    
 
 
 }
@@ -25,10 +26,15 @@ pub struct Span {
 // This is a constructor for the span, mostly when a span object get created or initialized
 
 impl  Span {
-    pub fn new(start : usize, end : usize, line: u32, col : u32, file : FileId) -> Self {
-        Self { start, end, line, col , file}
+    pub fn new(file: FileId,start : usize, end : usize, line: u32, col : u32) -> Self {
+        Self { file ,start, end, line, col }
 
     }
+
+    pub fn to(&self, other:Span) ->Span {
+        Span{file:self.file,start:self.start,end:other.end,line:self.line,col:self.col}
+    }
+
 }
 
 
@@ -443,7 +449,7 @@ mod tests {
     use super::*;
 
     fn dummy_span() -> Span {
-        Span::new(0, 0, 1, 1, FileId(0))
+        Span::new(FileId(0), 0, 0, 1,1)
     }
 
     #[test]
@@ -471,7 +477,57 @@ mod tests {
     #[test]
     fn builtin_function_names_are_not_reserved_keywords(){
 
+            //We want to confirm if parseInt/awaitAll must stay ordinary identifiers at the
+            //lexer level  - they are resolved as builtins later, in p-sema
+            // specifically to user code COULD shadow them with a real
+            // declaration without a lex-time collision
+            assert_eq!(keyword_lookup("parseInt"), None);
+            assert_eq!(keyword_lookup("awaitAll"), None);
+    }
 
-        //We want to confirm if parseInt
+    #[test]
+    fn non_keyword_identifier_is_not_reclassified(){
+        assert_eq!(keyword_lookup("username"),None);
+        assert_eq!(keyword_lookup("LoginForm"), None);
+    }
+
+    #[test]
+    fn keyword_lookup_is_case_sensitive_for_type_vs_node_names(){
+        assert_eq!(keyword_lookup("List"),Some(TokenKind::ListType));
+        assert_eq!(keyword_lookup("list"),Some(TokenKind::List));
+    }
+
+    #[test]
+    fn token_kind_display_matches_source_spelling(){
+        assert_eq!(TokenKind::Page.to_string(),"page");
+        assert_eq!(TokenKind::Arrow.to_string(),"->");
+        assert_eq!(TokenKind::Store.to_string(), "store");
+        assert_eq!(TokenKind::Extern.to_string(),"extern");
+        assert_eq!(TokenKind::Size(16.0,SizeUnit::Px).to_string(),"16px");
+    }
+
+    #[test]
+    fn token_carries_its_span(){
+        let tok = Token::new(TokenKind::Ident("count".to_string()),dummy_span());
+        assert_eq!(tok.span.line,1);
+    }
+
+    #[test]
+    fn span_to_merges_correctly(){
+        let a = Span::new(FileId(0),0,3,1,1);
+        let b = Span::new(FileId(0), 10, 15, 1,11);
+        let merged = a.to(b);
+        assert_eq!(merged.start,0);
+        assert_eq!(merged.end,15);
+    }
+
+    #[test]
+    fn phase2_tier1_and_tier2_keywords_are_all_present(){
+
+        let keywords = ["store", "extern", "client","server","global","module","npm", "as","test","assert"];
+
+        for kw in keywords{
+            assert!(keyword_lookup(kw).is_some(), "expected {kw:?} to be a keyword");
+        }
     }
 }
