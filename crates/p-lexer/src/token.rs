@@ -334,6 +334,19 @@ impl Token {
         Self { kind, span }
     }
 }
+#[derive(Debug, Clone, PartialEq)]
+pub struct  Spanned<E>{
+    pub span: Option<Span>,
+    pub error :  E,
+}
+impl<E> Spanned<E> {
+    pub fn at(span : Span, error: E) -> Self {
+        Self{span : Some(span), error}
+    }
+    pub fn unspanned(error : E) ->Self {
+        Self {span : None, error}
+    }
+}
 
 
 //We need a lookup table and we need a id-> identifier to a particular keywords or keyword table
@@ -341,6 +354,10 @@ impl Token {
 
 //'true' and 'false' are intentionally handled by the lexer directly as
 // 'TokenKind::Bool' not through this table, since they are literals, not keywords in the token-kind sense
+
+//'parseInt' and 'awaitAll' are not here - they are ordinary builtin FUNCTION names recognized later in p-sema(semantics) "is_builtin_fn"
+//not reserved keywords.
+//In the p sema {the p-sema's name resolution precedence - user declarations checked before builtins- is what actually protects against confusion there}
 pub fn keyword_lookup(ident : &str) -> Option<TokenKind>{
     use TokenKind::*;
     Some(match ident {
@@ -364,6 +381,26 @@ pub fn keyword_lookup(ident : &str) -> Option<TokenKind>{
         "and" => And,
         "or" => Or,
         "not" => Not,
+        "struct" => Struct,
+        "await" => Await,
+        "fetch" => Fetch,
+        "route" => Route,
+        "body" => Body,
+        "GET" => Get,
+        "POST" => Post,
+        "PUT" => Put,
+        "DELETE" => Delete,
+        "PATCH" => Patch,
+        "store" => Store,
+        "extern" => Extern,
+        "client" => Client,
+        "server" => Server,
+        "global" => Global,
+        "module" => Module,
+        "npm" => Npm,
+        "as" => As,
+        "test" => Test,
+        "assert" => Assert,
         "row" => Row,
         "column" => Column,
         "stack" => Stack,
@@ -416,7 +453,9 @@ mod tests {
 
         let  keyword  = ["page", "component","layout","state", "fn", "let","return",
                         "if" , "else", "for", "while","in", "import", "enum", "uses",
-                        "slot", "on","row", "column", "stack", "container", "card",
+                        "slot", "on","struct","await","fetch","route","body",
+                        "GET","POST","PUT","DELETE","PATCH",
+                        "row", "column", "stack", "container", "card",
                         "grid",  "text", "image", "icon", "input","textarea",
                         "button","checkbox","switch","radio","dropdown","table",
                         "navigation","tabs","dialog","modal","menu","and","or",
@@ -428,5 +467,11 @@ mod tests {
         for kw in keyword {
             assert!(keyword_lookup(kw).is_some(), "expected {kw:?} to be a recognized keyword")
         }
+    }
+    #[test]
+    fn builtin_function_names_are_not_reserved_keywords(){
+
+
+        //We want to confirm if parseInt
     }
 }
