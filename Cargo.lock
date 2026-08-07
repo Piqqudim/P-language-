@@ -5,3 +5,10 @@ version = 4
 [[package]]
 name = "p-lexer"
 version = "0.1.0"
+
+[[package]]
+name = "p-parser"
+version = "0.1.0"
+dependencies = [
+ "p-lexer",
+]

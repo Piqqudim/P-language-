@@ -1,0 +1,7 @@
+[package]
+name = "p-parser"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+p-lexer = {path= "../p-lexer"}

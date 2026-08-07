@@ -66,6 +66,7 @@ impl <'a> Lexer<'a> {
     fn new (source: &'a str)-> Self {
         Self { source, chars: source.char_indices().collect(), idx: 0, line: 1, col: 1, paren_depth: 0, indent_stack: vec![0], indent_unit: None, tokens: Vec::new() }
     }
+    
 
 
     fn peek(&self)->Option<char>{
