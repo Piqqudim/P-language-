@@ -88,7 +88,7 @@ pub struct ComponentDecl{
 pub struct  LayoutDecl{
     pub name: String,
     pub name_span: Span,
-    pub root: Node,
+    pub root: UiNode,
 
 }
 
@@ -99,7 +99,7 @@ pub struct PageDecl{
     pub uses: Option<String>,
     pub state_decls: Vec<StateDecl>,
     pub fns: Vec<FnDecl>,
-    pub root: Node
+    pub root: Vec<UiNode>
 
 }
 
@@ -112,6 +112,7 @@ pub struct RouteDecl {
     pub method_span: Span,
     pub path: String,
     pub body_ty : Option<TypeExpr>,
+    pub ret : TypeExpr,
     pub body :Vec<Stmt>,
 
 }
@@ -131,8 +132,8 @@ pub struct StoreDecl{
 #[derive(Debug,Clone,PartialEq)]
 pub enum ExternTarget {
     ClientGlobal {name : String},
-    ClientModule { url : String, export : String},
-    ServerNpm {package: String, export : String },
+    ClientModule { url : String, export : Option<String>},
+    ServerNpm {package: String, export : Option<String> },
 }
 
 #[derive(Debug,Clone,PartialEq)]
@@ -195,7 +196,7 @@ pub enum UiNode{
 #[derive(Debug,Clone,PartialEq)]
 pub struct PropertyStmt{
     pub name: String,
-    pub value: Vec<Expr>,
+    pub values: Vec<Expr>,
     pub span : Span,
 }
 

@@ -195,7 +195,9 @@ pub enum TokenKind {
     LParen, // (
     RParen, // )
     LBracket, // {
-    RBracket, // }
+    RBracket,
+    LBrace,
+    RBrace, // }
     Arrow, // ->
     FatArrow, // =>
     Assign, // = 
@@ -310,6 +312,8 @@ impl fmt::Display for TokenKind{
             RParen => write!(f, ")"),
             LBracket => write!(f, "["),
             RBracket => write!(f, "]"),
+            LBrace => write!(f,"{{"),
+            RBrace => write!(f,"}}"),
             Arrow => write!(f, "->"),
             FatArrow => write!(f, "=>"),
             Assign => write!(f, "="),
