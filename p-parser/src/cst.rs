@@ -51,7 +51,7 @@ pub struct StateDecl{
     pub name: String,
     pub name_span: Span,
     pub ty: TypeExpr,
-    pub value : ExprNode,
+    pub value : Expr,
 
 }
 
@@ -80,7 +80,7 @@ pub struct ComponentDecl{
     pub params : Vec<Param>,
     pub state_decls : Vec<StateDecl>,
     pub fns: Vec<FnDecl>,
-    pub root: Vec<Ui
+    pub root: Vec<UiNode>,
 
 }
 
@@ -111,16 +111,8 @@ pub struct RouteDecl {
     pub method : HttpMethod,
     pub method_span: Span,
     pub path: String,
-
-    //Path params (in path order, always String) followed by the
-    //"body" param (if any)- folded together here so a route is
-    //shape-identical to a plain fn everywhere scope checking happens
-    pub params: Vec<Param>,
-
-    //Explicit , NOT rederived from params.len(), we could use params.len(), but not or parameters have a body
-    pub has_body :bool,
-    pub ret : TypeExpr,
-    pub body: Vec<Stmt>,
+    pub body_ty : Option<TypeExpr>,
+    pub body :Vec<Stmt>,
 
 }
 
@@ -165,10 +157,10 @@ pub struct TestDecl {
 
 
 #[derive(Debug,Clone,Copy,PartialEq)]
-pub enum ElementKind{
-    Row, Column, Stack, Container, Card, Grid, List, Text, Image, Icon,
-    Input, Textarea, Button, Checkbox, Switch, Radio, Dropdown, Table,
-    Navigation, Tabs, Dialog, Modal, Menu, Slot,
+pub enum NodeKind{
+    Row, Column,Stack,Container,Card,Grid,List,Text,Image,Icon,
+    Input,Textarea,Button,Checkbox,Switch,Radio,Dropdown,Table,
+    Navigation,Tabs,Dialog,Modal,Menu,Slot,
 }
 
 #[derive(Debug, Clone,PartialEq)]
@@ -179,64 +171,73 @@ pub struct Node{
 
 }
 #[derive(Debug,Clone,PartialEq)]
-pub enum NodeKind {
-    Element {
-        kind: ElementKind,
-        inline_arg: Option<ExprNode>,
-        properties : Vec<Property>,
-        events : Vec<Event>,
-        children: Vec<Node>,
-    },
-
-    ComponentCall {
-        name : String,
-        args : Vec<Arg>,
-        children : Vec<Node>,
-    },
-    If {
-        cond: ExprNode,
-        then_branch: Vec<Node>,
-        else_branch : Option<Vec<Node>>,
-
-    },
-    For {
-        var: String,
-        var_span: Span,
-        iter : ExprNode,
-        body : Vec<Node>,
-    },
+pub enum UiNode{
+    Kind {kind: NodeKind, inline_arg : Option<Expr>, body: Vec<NodeBodyItem>,span:Span},
+    Call {name: String, args:Vec<Arg>, body:Vec<NodeBodyItem>, span:Span},
 }
+ impl UiNode{
+    pub fn span(&self)->Span{
+        match self {
+            UiNode::Kind{span, .. } => *span,
+            UiNode::Call {span, ..} =>*span,
+        }
+    }
+ }
 
+ #[derive(Debug,Clone,PartialEq)]
+ pub enum NodeBodyItem {
+    Property(PropertyStmt),
+    Event(EventStmt),
+    Node(UiNode),
+    If(IfNode),
+    For(ForNode)
+ }
 #[derive(Debug,Clone,PartialEq)]
-pub struct Property{
+pub struct PropertyStmt{
     pub name: String,
-    pub value: PropertyValue
+    pub value: Vec<Expr>,
+    pub span : Span,
 }
 
-#[derive(Debug,Clone,PartialEq)]
-pub enum PropertyValue{
-    Single(ExprNode),
-    Box {top: ExprNode , right: ExprNode, bottom:ExprNode,left:ExprNode},
-}
 
 #[derive(Debug,Clone,PartialEq)]
-pub struct Event {
+pub struct EventStmt{
     pub name: String,
     pub handler: EventHandler,
 }
 
 #[derive(Debug,Clone,PartialEq)]
 pub enum EventHandler {
-    Call(ExprNode),
+    Call(Expr),
     Lambda {params : Vec<String>, body:LambdaBody},
 }
 
 #[derive(Debug,Clone,PartialEq)]
 pub enum LambdaBody{
-    Expr(ExprNode),
-    Assign{target :LValue, value:ExprNode},
+    Expr(Expr),
+    Assign{target :LValue, value:Expr},
+}
+#[derive(Debug,Clone,PartialEq)]
+pub struct IfNode{
+    pub cond: Expr,
+    pub then_branch: Vec<UiNode>,
+    pub else_branch: Option<Vec<UiNode>>,
+    pub span: Span,
 }
 
+#[derive(Debug,Clone,PartialEq)]
+pub struct ForNode{
+    pub var : String,
+    pub var_span: Span,
+    pub iter: Expr,
+    pub body: Vec<UiNode>,
+    pub span : Span,
+}
+#[derive(Debug,Clone,PartialEq)]
+pub struct Expr{
+    pub kind: ExprKind,
+    pub span: Span,
+}
 #[derive(Debug,Clone,PartialEq)]
 pub struct LValue{
     pub name: String,
@@ -246,15 +247,10 @@ pub struct LValue{
 #[derive(Debug,Clone,PartialEq)]
 pub enum Accessor{
     Field(String),
-    Index(ExprNode),
+    Index(Expr),
 }
 
-#[derive(Debug,Clone,PartialEq)]
-pub struct ExprNode{
-    pub id: ExprId,
-    pub span: Span,
-    pub kind: ExprKind,
-}
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExprKind{
@@ -265,22 +261,22 @@ pub enum ExprKind{
     Color(String),
     Size(f64, SizeUnit),
     Ident(String),
-    List(Vec<ExprNode>),
-    StructLit {type_name :String, fields : Vec<(String, ExprNode)>},
-    Unary {op : UnaryOp, expr: Box<ExprNode>},
-    Binary {op: BinaryOp, lhs:Box<ExprNode>, rhs: Box<ExprNode>},
-    Call { callee : Box<ExprNode>, args : Vec<Arg>},
-    Field {base :Box<ExprNode>, name : String},
-    Index {base :Box<ExprNode>, index : Box<ExprNode>},
-    AwaitFetch {type_args : TypeExpr, url : Box<ExprNode>},
-    Await {expr : Box<ExprNode>}
+    List(Vec<Expr>),
+    StructLit {type_name :String, fields : Vec<(String, Expr)>},
+    Unary {op : UnaryOp, expr: Box<Expr>},
+    Binary {op: BinaryOp, lhs:Box<Expr>, rhs: Box<Expr>},
+    Call { callee : Box<Expr>, args : Vec<Arg>},
+    Field {base :Box<Expr>, name : String},
+    Index {base :Box<Expr>, index : Box<Expr>},
+    AwaitFetch {type_args : TypeExpr, url : Box<Expr>},
+    Await {expr : Box<Expr>}
 
 }
 
 #[derive(Debug,Clone,PartialEq)]
 pub struct Arg {
     pub name : Option<String>,
-    pub value : ExprNode,
+    pub value : Expr,
 }
 
 #[derive(Debug,Clone,Copy,PartialEq)]
@@ -300,13 +296,13 @@ pub enum TypeExpr {
 
 #[derive(Debug,Clone,PartialEq)]
 pub enum Stmt{
-    Let{name: String, name_span: Span, ty: Option<TypeExpr>, value: ExprNode},
-    Assign {target: LValue, value: ExprNode},
-    If {cond: ExprNode, then_branch:Vec<Stmt>, else_branch:Option<Vec<Stmt>>},
-    For{var : String, var_span :Span, iter: ExprNode, body : Vec<Stmt>},
-    While{ cond: ExprNode, body : Vec<Stmt>},
-    Return(Option<ExprNode>),
-    Assert{expr: ExprNode, span:Span},
-    Expr(ExprNode),
+    Let{name: String, name_span: Span, ty: Option<TypeExpr>, value: Expr},
+    Assign {target: LValue, value: Expr},
+    If {cond: Expr, then_branch:Vec<Stmt>, else_branch:Option<Vec<Stmt>>},
+    For{var : String, var_span :Span, iter: Expr, body : Vec<Stmt>},
+    While{ cond: Expr, body : Vec<Stmt>},
+    Return(Option<Expr>),
+    Assert{expr: Expr, span:Span},
+    Expr(Expr),
 
 }
