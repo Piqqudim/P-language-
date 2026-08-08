@@ -80,7 +80,7 @@ pub struct ComponentDecl{
     pub params : Vec<Param>,
     pub state_decls : Vec<StateDecl>,
     pub fns: Vec<FnDecl>,
-    pub root: Node
+    pub root: Vec<Ui
 
 }
 
