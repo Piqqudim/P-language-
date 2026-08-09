@@ -105,13 +105,18 @@ impl<'t> Parser<'t> {
     }
 
     fn parse_module(&mut self) -> Result<Module,ParseError>{
+        
+         dbg!(&self.tokens);
         let mut items = Vec::new();
         self.skip_newlines();
-        while !matches!(self.peek(), TokenKind::Eof){
-            items.push(self.parse_top_level_item()?);
-            self.skip_newlines();
-        }
-        Ok(Module { items })
+       while !self.check(&TokenKind::Eof) {
+                    self.skip_newlines();
+                     if self.check(&TokenKind::Eof) {
+                  break;
+                     }
+                items.push(self.parse_top_level_item()?);
+                }
+         Ok(Module { items })
     }
 
     fn parse_top_level_item(&mut self )-> Result<TopLevelItem,ParseError>{
@@ -220,7 +225,7 @@ impl<'t> Parser<'t> {
         let name_span = self.peek_span();
         let name = self.expect_ident()?;
         let params = self.parse_params()?;
-        let ret = if self.eat(&TokenKind::Return) {
+        let ret = if self.eat(&TokenKind::Arrow) {
             Some(self.parse_type_expr()?)
         }
         else {
@@ -385,11 +390,14 @@ impl<'t> Parser<'t> {
             self.expect(TokenKind::Newline)?;
             self.expect(TokenKind::Indent)?;
             let mut body = Vec::new();
+
             while !self.check(&TokenKind::Dedent){
                 body.push(self.parse_stmt()?);
             }
+            self.expect(TokenKind::Dedent)?;
             Ok(TestDecl { description, description_span, body })
         }
+      
 
         fn node_kind_from_token(&self)->Option<NodeKind>{
             Some(match self.peek(){
@@ -820,7 +828,7 @@ impl<'t> Parser<'t> {
         fn parse_unary(&mut self)->Result<Expr,ParseError>{
             if matches!(self.peek(),TokenKind::Minus){
                 let start = self.peek_span();
-                self.advance();
+                self.advance();  
                 let e = self.parse_unary()?;
                 let span = start.to(e.span);
                 return Ok(Expr { kind: ExprKind::Unary { op: UnaryOp::Neg, expr: Box::new(e) }, span });
@@ -1069,6 +1077,54 @@ mod tests {
         let module = parse_src(src);
         let TopLevelItem::Extern(e) = &module.items[0] else {panic!()};
         assert!(matches!(&e.target,ExternTarget::ServerNpm { package, export } if package == "bcrypt"));
+    }
+
+    #[test]
+    fn test_and_assert_parse(){
+        let src = "fn double(x:Int) -> Int\n   return x * 2\n\ntest \"doubles correctly\"\n   let r = double(3)\n   assert r == 6\n";
+        let module = parse_src(src);
+        let TopLevelItem::Test(t) = &module.items[1] else { panic!()};
+        dbg!(&module.items[1]);
+        dbg!(&t.description);
+
+
+        assert_eq!(t.description,"doubles correctly");
+        assert!(matches!(t.body[1], Stmt::Assert { .. }));
+    }
+
+    #[test]
+    fn dynamic_route_path_is_just_a_plain_string_at_parse_time(){
+        // id extraction happens at P- AST lowering not here
+        // it just treat it as a whole string path
+        let src = "struct T\n  id:Int\n\nroute GET \"/api/tasks/:id\" -> T\n  return T {id: 1 } \n";
+        let module = parse_src(src);
+        let TopLevelItem::Route(r) = &module.items[1] else { panic!()};
+        assert_eq!(r.path,"/api/tasks/id");
+
+        
+    }
+
+    #[test]
+    fn lambda_assignment_still_parses(){
+        let src = "page Home\n  state username: String = \"\"\n  input username\n    on change(val) => username = val\n";
+        let module = parse_src(src);
+        dbg!(&module.items[0]);
+        
+        let TopLevelItem::Page(p) = &module.items[0] else {panic!()};
+        dbg!(&p.root[0]);
+        let UiNode::Kind { body, .. } = &p.root[0] else {panic!()};
+        dbg!(&body[0]);
+        let NodeBodyItem::Event(ev) = &body[0] else {panic!()};
+        dbg!(&ev.handler);
+
+        assert!(matches!(&ev.handler,EventHandler::Lambda {  body : LambdaBody::Assign { .. }, .. }));
+    }
+
+    #[test]
+    fn chained_comparison_is_still_a_parse_error(){
+        let src = "fn f() -> Bool\n  return 1 < 2 < 3\n";
+        let tokens = tokenize(src, FileId(0)).unwrap();
+        assert!(parse(&tokens).is_err());
     }
 
 
