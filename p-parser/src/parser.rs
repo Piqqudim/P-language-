@@ -1044,4 +1044,33 @@ mod tests {
         assert!(matches!(module.items[1],TopLevelItem::Store(_)));
     }
 
+    #[test]
+    fn extern_client_global_parse(){
+        let src = "extern fn alert(msg: String)-> Void client global \"alert\"\n";
+        let module = parse_src(src);
+        let TopLevelItem::Extern(e)=&module.items[0] else {panic!()};
+        assert!(matches!(&e.target,ExternTarget::ClientGlobal { name } if name == "alert"));
+    }
+
+    #[test]
+    fn extern_client_module_with_as_parses(){
+        let src = "extern fn parseISO(s: String) -> Int client module \"https://esm.sh/date-fns\" as \"parseISO\"\n";
+        let module = parse_src(src);
+        let TopLevelItem::Extern(e) = &module.items[0] else  {panic!()};
+        dbg!(&e.target);
+        dbg!(&module.items[0]);
+
+        assert!(matches!(&e.target,ExternTarget::ClientModule { url, export: Some(ex) } if url == "https://esm.sh/date-fns" && ex == "parseISO"));
+    }
+
+    #[test]
+    fn extern_server_npm_without_as_parses(){
+        let src = "extern fn hashSync(s:String)-> String server npm \"bcrypt\"\n";
+        let module = parse_src(src);
+        let TopLevelItem::Extern(e) = &module.items[0] else {panic!()};
+        assert!(matches!(&e.target,ExternTarget::ServerNpm { package, export } if package == "bcrypt"));
+    }
+
+
+
 }
