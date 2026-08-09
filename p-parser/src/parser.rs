@@ -1025,3 +1025,23 @@ impl<'t> Parser<'t> {
     }
 
 }
+
+//let work on the testing
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use p_lexer::{tokenize,FileId};
+
+    fn parse_src(src: &str) -> Module {
+        let tokens = tokenize(src, FileId(0)).expect("lex is Ok");
+        parse(&tokens).expect("parse ok")
+    }
+
+    #[test]
+    fn store_decl_parses(){
+        let src = "struct Task\n id: Int\n\nstore tasks:List<Task>\n";
+        let module=parse_src(src);
+        assert!(matches!(module.items[1],TopLevelItem::Store(_)));
+    }
+
+}

@@ -42,8 +42,8 @@ impl fmt::Display for LexError {
 impl  std::error::Error for LexError{
     
 }
-pub fn tokenize(source : &str) ->Result<Vec<Token>,LexError> {
-    let mut lexer = Lexer::new(source);
+pub fn tokenize(source : &str, file : FileId) ->Result<Vec<Token>,LexError> {
+    let mut lexer = Lexer::new(source, file);
     lexer.run()?;
     Ok(lexer.tokens)
 
@@ -60,11 +60,12 @@ struct Lexer<'a> {
     indent_stack : Vec<usize>,
     indent_unit : Option<usize>,
     tokens : Vec<Token>,
+    file : FileId,
 }
 
 impl <'a> Lexer<'a> {
-    fn new (source: &'a str)-> Self {
-        Self { source, chars: source.char_indices().collect(), idx: 0, line: 1, col: 1, paren_depth: 0, indent_stack: vec![0], indent_unit: None, tokens: Vec::new() }
+    fn new (source: &'a str, file : FileId)-> Self {
+        Self { source, chars: source.char_indices().collect(), idx: 0, line: 1, col: 1, paren_depth: 0, indent_stack: vec![0], indent_unit: None, tokens: Vec::new(), file }
     }
     
 
