@@ -6,7 +6,7 @@
 
 use p_lexer::{Span, Token, TokenKind, token::FileId};
 use crate::cst::*;
-use std::fmt::{self, format};
+use std::fmt::{self};
 
 #[derive(Debug, Clone,PartialEq)]
 pub struct  ParseError {
@@ -24,6 +24,8 @@ impl fmt::Display for ParseError{
 impl std::error::Error for ParseError{}
 
 pub fn parse(tokens:&[Token]) -> Result<Module,ParseError>{
+    let mut p = Parser { tokens,pos:0, last_span: tokens[0].span};
+    p.parse_module()
     
     
 }
@@ -114,6 +116,20 @@ impl<'t> Parser<'t> {
 
     fn parse_top_level_item(&mut self )-> Result<TopLevelItem,ParseError>{
         match self.peek().clone(){
+            TokenKind::Import => self.parse_import(),
+            TokenKind::Enum => self.parse_enum().map(TopLevelItem::Enum),
+            TokenKind::Struct => self.parse_struct_decl().map(TopLevelItem::Struct),
+            TokenKind::State => self.parse_state_decl().map(TopLevelItem::State),
+            TokenKind::Fn => self.parse_fn_decl().map(TopLevelItem::Fn),
+            TokenKind::Component => self.parse_component_decl().map(TopLevelItem::Component),
+            TokenKind::Layout => self.parse_layout_decl().map(TopLevelItem::Layout),
+            TokenKind::Page => self.parse_page_decl().map(TopLevelItem::Page),
+            TokenKind::Route => self.parse_route_decl().map(TopLevelItem::Route),
+            TokenKind::Store => self.parse_store_decl().map(TopLevelItem::Store),
+            TokenKind::Extern => self.parse_extern_decl().map(TopLevelItem::Extern),
+            TokenKind::Test => self.parse_test_decl().map(TopLevelItem::Test),
+            other  => Err(self.err(format!("expected a top-level item(import/enum/struct/state/fn/component/layout/page/route/store/extern/test), found {other}")))
+
             
         }
     }
@@ -947,9 +963,64 @@ impl<'t> Parser<'t> {
     }
 
     fn parse_struct_lit(&mut self, type_name : String, start:Span)-> Result<Expr,ParseError>{
+        self.expect(TokenKind::LBrace)?;
+        let mut fields = Vec::new();
+        if !self.check(&TokenKind::RBrace){
+            loop {
+                let fname = self.expect_ident()?;
+                self.expect(TokenKind::Colon)?;
+                let value = self.parse_expr()?;
+                fields.push((fname,value));
+                if !self.eat(&TokenKind::Comma){
+                    break;
+                }
+            }
+        }
+        self.expect(TokenKind::RBrace)?;
+        let span = start.to(self.last_span);
+        Ok(Expr{kind:ExprKind::StructLit { type_name, fields }, span
+        })
 
     }
     fn parse_type_expr(&mut self)-> Result<TypeExpr,ParseError>{
+        match self.peek().clone(){
+            TokenKind::IntType => {self.advance(); Ok(TypeExpr::Int)}
+            TokenKind::FloatType => {self.advance(); Ok(TypeExpr::Float)}
+            TokenKind::StringType => {self.advance(); Ok(TypeExpr::String)}
+            TokenKind::BoolType => {self.advance(); Ok(TypeExpr::Bool)}
+            TokenKind::ColorType => {self.advance(); Ok(TypeExpr::Color)}
+            TokenKind::SizeType => {self.advance(); Ok(TypeExpr::Size)}
+            TokenKind::VoidType => {self.advance(); Ok(TypeExpr::Void)}
+            TokenKind::ListType => {
+                self.advance();
+                self.expect(TokenKind::Lt)?;
+                let inner = self.parse_type_expr()?;
+                self.expect(TokenKind::Gt)?;
+                Ok(TypeExpr::List(Box::new(inner)))
+            }
+            TokenKind::MapType => {
+                self.advance();
+                self.expect(TokenKind::Lt)?;
+                let k = self.parse_type_expr()?;
+                self.expect(TokenKind::Comma)?;
+                let v = self.parse_type_expr()?;
+                self.expect(TokenKind::Gt)?;
+                Ok(TypeExpr::Map(Box::new(k), Box::new(v)))
+            }
+            TokenKind::OptionType =>{
+                self.advance();
+                self.expect(TokenKind::Lt)?;
+                let inner = self.parse_type_expr()?;
+                self.expect(TokenKind::Gt)?;
+                Ok(TypeExpr::Option(Box::new(inner)))
+            }
+
+            TokenKind::Ident(name) =>{
+                self.advance();
+                Ok(TypeExpr::Named(name))
+            }
+            other => Err(self.err(format!("expected a type, found {other}")))
+        }
 
     }
 
