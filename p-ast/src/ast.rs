@@ -13,6 +13,18 @@ use p_lexer::{SizeUnit,Span};
 
  #[derive(Debug,Clone,PartialEq)]
  pub struct Module {
+   pub imports: Vec<Vec<String>>,
+   pub enums: Vec<EnumDecl>,
+   pub structs: Vec<StructDecl>,
+   pub state_decls: Vec<StateDecl>,
+   pub fns: Vec<FnDecl>,
+   pub components: Vec<ComponentDecl>,
+   pub layouts : Vec<LayoutDecl>,
+   pub pages:  Vec<PageDecl>,
+   pub routes: Vec<RouteDecl>,
+   pub stores: Vec<StoreDecl>,
+   pub externs: Vec<ExternDecl>,
+   pub tests: Vec<TestDecl>,
     
  }
 
@@ -276,3 +288,4 @@ use p_lexer::{SizeUnit,Span};
     Option(Box<TypeExpr>),
     Named(String),
  }
+

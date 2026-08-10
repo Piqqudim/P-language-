@@ -5,3 +5,4 @@ version.workspace = true
 
 [dependencies]
 p-lexer = {path = "../p-lexer"}
+p-parser = {path = "../p-parser"}

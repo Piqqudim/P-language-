@@ -1,4 +1,4 @@
-use p_lexer::{Span,SizeUnit};
+ use p_lexer::{Span,SizeUnit};
 
 #[derive(Debug,Clone,Copy,PartialEq,Eq,Hash,PartialOrd, Ord)]
 pub struct NodeId(pub u32);

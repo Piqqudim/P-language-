@@ -7,6 +7,7 @@ name = "p-ast"
 version = "0.1.0"
 dependencies = [
  "p-lexer",
+ "p-parser",
 ]
 
 [[package]]
