@@ -8,9 +8,9 @@
 
 use crate::ast::*;
 use p_lexer::Span;
-use p_parser::cst;
+use p_parser::{NodeBodyItem, cst};
 
-use std::char::Lower;
+
 use std::collections::HashSet;
 use std::fmt;
 
@@ -136,7 +136,7 @@ impl Lowerer {
         for f in p.fns{
             fns.push(self.lower_fn_decl(f)?);
         }
-        let root = self.wrap_or_string(p.root)?;
+        let root = self.wrap_or_single(p.root)?;
         Ok(PageDecl { name: p.name, name_span: p.name_span, uses: p.uses, state_decls, fns, root })
     }
 
@@ -158,8 +158,154 @@ impl Lowerer {
     fn lower_route_decl(&mut self,r: cst::RouteDecl) -> Result<RouteDecl,LowerError>{
         let mut params: Vec<Param> = Self::extract_path_param_names(&r.path).into_iter().map(|name| Param{name, name_span:r.method_span,ty: TypeExpr::String}).collect();
         let has_body = r.body_ty.is_some();
-        if let Some(ty) = r.body_ty
+        if let Some(ty) = r.body_ty{
+            params.push(Param { name: "body".to_string(), name_span: r.method_span, ty: lower_type(ty) });
+        }
+
+        let mut seen = HashSet::new();
+        for p in &params{
+            if !seen.insert(p.name.clone()){
+                return Err(LowerError::DuplicateRouteParam { name: p.name.clone(), path: r.path.clone(), span: r.method_span, });
+            }
+        }
+        let mut body = Vec::with_capacity(r.body.len());
+        for s in r.body{
+            body.push(self.lower_stmt(s)?);
+        }
+
+        Ok(RouteDecl { method: Self::lower_method(r.method), method_span: r.method_span, path: r.path, params, has_body, ret: lower_type(r.ret), body })
     }
+
+    fn lower_store_decl(&self, s: cst::StoreDecl) -> StoreDecl{
+        StoreDecl { name: s.name, name_span: s.name_span, ty: lower_type(s.ty) }
+    }
+
+
+    // defaulting happens exactly once, here - every later stage can assume ExternTarget's export name is always populated
+    fn lower_extern_decl(&self, e: cst::ExternDecl) -> ExternDecl{
+        let target = match e.target{
+            cst::ExternTarget::ClientGlobal { name } => ExternTarget::ClientGlobal { name },
+            cst::ExternTarget::ClientModule { url, export } => {
+                ExternTarget::ClientModule { url, export: export.unwrap_or_else(|| e.name.clone()) }
+            }
+            cst::ExternTarget::ServerNpm { package, export } => { ExternTarget::ServerNpm { package, export: export.unwrap_or_else(|| e.name.clone()) }}
+            
+        };
+        ExternDecl { name: e.name, name_span: e.name_span, params: self.lower_params(e.params), ret: e.ret.map(lower_type), target, }
+    } 
+
+
+    fn lower_test_decl(&mut self, t : cst::TestDecl) -> Result<TestDecl,LowerError>{
+        let mut body = Vec::with_capacity(t.body.len());
+        for s in t.body{
+            body.push(self.lower_stmt(s)?);
+        }
+        Ok(TestDecl { description: t.description, description_span: t.description_span, body })
+    }
+
+    fn wrap_or_single(&mut self, mut nodes: Vec<cst::UiNode>) -> Result<Node,LowerError>{
+        if nodes.len() == 1 {
+            return self.lower_ui_node(nodes.remove(0));
+        }
+        let span = nodes[0].span().to(nodes[nodes.len() - 1].span());
+        let mut children = Vec::with_capacity(nodes.len());
+        for n in nodes {
+            children.push(self.lower_ui_node(n)?);
+        }
+        Ok(Node { id: self.node_id(), span, kind: NodeKind::Element { kind: ElementKind::Column, inline_arg: None, properties: Vec::new(), events: Vec::new(), children }})
+    }
+
+    fn lower_ui_node(&mut self, node: cst::UiNode) -> Result<Node,LowerError>{
+        let id = self.node_id();
+        let span = node.span();
+        let kind = match node {
+            cst::UiNode::Kind { kind, inline_arg, body, .. } => {
+                let inline_arg = inline_arg.map(|e| self.lower_expr(e)).transpose()?;
+                let (properties, events,children) = self.split_body(body)?;
+                NodeKind::Element { kind: lower_element_kind(kind), inline_arg, properties, events , children }
+               
+        }
+
+        cst::UiNode::Call { name, args, body, .. } => {
+            let args = self.lower_args(args)?;
+            let (properties, events, children) = self.split_body(body)?;
+            debug_assert!(
+                properties.is_empty() && events.is_empty(),
+                " component call body should only ever contain child nodes"
+            );
+            NodeKind::ComponentCall { name, args, children }
+        }
+    
+    };
+    Ok(Node { id, span, kind })
+
+    }
+
+    fn split_body(&mut self, body: Vec<cst::NodeBodyItem>) -> Result<(Vec<Property>,Vec<Event>,Vec<Node>),LowerError>{
+        let mut properties = Vec::new();
+        let mut events = Vec::new();
+        let mut children = Vec::new();
+        for item in body{
+            match item {
+                cst::NodeBodyItem::Property(p)=> properties.push(self.lower_property(p)?),
+                cst::NodeBodyItem::Event(e) => events.push(self.lower_event(e)?),
+                cst::NodeBodyItem::Node(n) => children.push(self.lower_ui_node(n)?),
+                cst::NodeBodyItem::If(i) => children.push(self.lower_if_node(i)?),
+                cst::NodeBodyItem::For(f) => children.push(self.lower_for_node(f)?),
+            }
+        }
+        Ok((properties, events, children))
+    }
+
+    fn lower_property(&mut self, p: cst::PropertyStmt) -> Result<Property,LowerError>{
+        let value = match p.values.len(){
+            1 => {
+                let mut vals = p.values;
+                PropertyValue::Single(self.lower_expr(vals.remove(0))?)
+            }
+            4 => {
+                let mut vals = p.values.into_iter();
+                let top = self.lower_expr(vals.next().unwrap())?;
+                let right = self.lower_expr(vals.next().unwrap())?;
+                let bottom = self.lower_expr(vals.next().unwrap())?;
+                let left = self.lower_expr(vals.next().unwrap())?;
+                PropertyValue::Box { top, right, bottom, left }
+            }
+            n => return Err(LowerError::InvalidPropertyArity { property: p.name, found: n, span: p.span })
+        };
+        Ok(Property { name: p.name, value })
+    }
+
+    fn lower_event(&mut self, e: cst::EventStmt) -> Result<Event, LowerError>{
+        let handler = match e.handler {
+            cst::EventHandler::Call(expr) => EventHandler::Call(self.lower_expr(expr)?),
+            cst::EventHandler::Lambda { params, body } => {
+                let body = match body {
+                    cst::LambdaBody::Expr(e) => LambdaBody::Expr(self.lower_expr(e)?),
+                    cst::LambdaBody::Assign { target, value }=> {
+                        LambdaBody::Assign { target: self.lower_lvalue(target)?, value: self.lower_expr(value) }
+                    }
+                };
+                EventHandler::Lambda { params, body}
+            }
+        };
+        Ok(Event { name: e.name, handler })
+    }
+
+    fn lower_if_node(&mut self,i: cst::IfNode) -> Result<Node,LowerError>{
+        let id = self.node_id();
+        let cond = self.lower_expr(i.cond)?;
+        let then_branch = self.lower_node_list(i.then_branch)?;
+        let else_branch = i.else_branch.map(|b| self.lower_node_list(b)).transpose()?;
+        Ok(Node { id, span: i.span, kind: NodeKind::If { cond, then_branch, else_branch } })
+    }
+
+    fn lower_expr(&mut self, e: cst::Expr) -> Result<ExprNode,LowerError>{
+
+    }
+    fn lower_stmt(&mut self, s: cst::Stmt) -> Result<
+
+     
 
 }
 

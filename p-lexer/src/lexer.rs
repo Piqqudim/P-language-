@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, fs::File};
 
 use crate::token::{FileId, SizeUnit, Span, Token, TokenKind, keyword_lookup};
 
@@ -65,8 +65,10 @@ struct Lexer<'a> {
 
 impl <'a> Lexer<'a> {
     fn new (source: &'a str, file : FileId)-> Self {
-        Self { source, chars: source.char_indices().collect(), idx: 0, line: 1, col: 1, paren_depth: 0, indent_stack: vec![0], indent_unit: None, tokens: Vec::new(), file }
+        Self { source, chars: source.char_indices().collect(), idx: 0, line: 1, col: 1, paren_depth: 0, indent_stack: vec![0], indent_unit: None, tokens: Vec::new(), file: file }
     }
+
+   
     
 
 

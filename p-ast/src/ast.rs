@@ -174,7 +174,7 @@ use p_lexer::{SizeUnit,Span};
         children:Vec<Node>,
     },
     If{
-        con: ExprNode,
+        cond: ExprNode,
         then_branch : Vec<Node>,
         else_branch: Option<Vec<Node>>,
     },
