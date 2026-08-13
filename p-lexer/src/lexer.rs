@@ -1,4 +1,4 @@
-use std::{fmt, fs::File};
+use std::{fmt};
 
 use crate::token::{FileId, SizeUnit, Span, Token, TokenKind, keyword_lookup};
 

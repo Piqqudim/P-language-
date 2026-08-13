@@ -8,7 +8,7 @@
 
 use crate::ast::*;
 use p_lexer::Span;
-use p_parser::{NodeBodyItem, cst};
+use p_parser::cst;
 
 
 use std::collections::HashSet;
@@ -38,6 +38,8 @@ impl fmt::Display for LowerError{
 impl std::error::Error for LowerError {}
 
 pub fn lower(module: cst::Module) -> Result<Module,LowerError>{
+    let mut l = Lowerer{next_node: 0, next_expr: 0};
+    l.lower_module(module)
 
 }
 struct Lowerer {
@@ -75,14 +77,24 @@ impl Lowerer {
         };
         for  item  in m.items {
             match item {
-                cst::TopLevelItem::Import(path)= > out.imports.push(path),
+                cst::TopLevelItem::Import(path) => out.imports.push(path),
                 cst::TopLevelItem::Enum(e) => {
                     out.enums.push(EnumDecl { name: e.name, name_span: e.name_span, variants: e.variants })
                 }
-                cst::TopLevelItem::Struct(s) => out.structs.push(value),
+                cst::TopLevelItem::Struct(s) => out.structs.push(self.lower_struct_decl(s)),
+                cst::TopLevelItem::State(s) => out.state_decls.push(self.lower_state_decl(s)?),
+                cst::TopLevelItem::Fn(f) => out.fns.push(self.lower_fn_decl(f)?),
+                cst::TopLevelItem::Component(c) => out.components.push(self.lower_component_decl(c)?),
+                cst::TopLevelItem::Layout(l) => out.layouts.push(self.lower_layout_decl(l)?),
+                cst::TopLevelItem::Page(p) => out.pages.push(self.lower_page_decl(p)?),
+                cst::TopLevelItem::Route(r) => out.routes.push(self.lower_route_decl(r)?),
+                cst::TopLevelItem::Store(s) => out.stores.push(self.lower_store_decl(s)),
+                cst::TopLevelItem::Extern(e) => out.externs.push(self.lower_extern_decl(e)),
+                cst::TopLevelItem::Test(t) => out.tests.push(self.lower_test_decl(t)?)
             }
             
         }
+        Ok(out)
         
     }
 
@@ -122,7 +134,7 @@ impl Lowerer {
             Ok(ComponentDecl { name: c.name, name_span: c.name_span, params, state_decls, fns, root })
     }
 
-    fn lower_lower_layout_decl(&mut self, l: cst::LayoutDecl)-> Result<LayoutDecl,LowerError>{
+    fn lower_layout_decl(&mut self, l: cst::LayoutDecl)-> Result<LayoutDecl,LowerError>{
         let root = self.lower_ui_node(l.root)?;
         Ok(LayoutDecl { name: l.name, name_span: l.name_span, root })
     }
@@ -283,7 +295,7 @@ impl Lowerer {
                 let body = match body {
                     cst::LambdaBody::Expr(e) => LambdaBody::Expr(self.lower_expr(e)?),
                     cst::LambdaBody::Assign { target, value }=> {
-                        LambdaBody::Assign { target: self.lower_lvalue(target)?, value: self.lower_expr(value) }
+                        LambdaBody::Assign { target: self.lower_lvalue(target)?, value: self.lower_expr(value)? }
                     }
                 };
                 EventHandler::Lambda { params, body}
@@ -300,14 +312,182 @@ impl Lowerer {
         Ok(Node { id, span: i.span, kind: NodeKind::If { cond, then_branch, else_branch } })
     }
 
-    fn lower_expr(&mut self, e: cst::Expr) -> Result<ExprNode,LowerError>{
+    fn lower_for_node(&mut self, f: cst::ForNode) -> Result<Node,LowerError>{
+        let id = self.node_id();
+        let iter = self.lower_expr(f.iter)?;
+        let body = self.lower_node_list(f.body)?;
+        Ok(Node { id, span: f.span, kind: NodeKind::For { var: f.var, var_span: f.var_span, iter, body } })
+    
+    }
+
+
+    fn lower_node_list(&mut self, nodes: Vec<cst::UiNode>)-> Result<Vec<Node>,LowerError>{
+        nodes.into_iter().map(|n| self.lower_ui_node(n)).collect()
+    }
+
+    fn lower_args(&mut self, args: Vec<cst::Arg>) -> Result<Vec<Arg>, LowerError>{
+        args.into_iter().map(|f| Ok(Arg{name: f.name, value: self.lower_expr(f.value)?})).collect()
 
     }
-    fn lower_stmt(&mut self, s: cst::Stmt) -> Result<
+
+    fn lower_lvalue(&mut self, l: cst::LValue) -> Result<LValue,LowerError>{
+        let mut accessors = Vec::with_capacity(l.accessors.len());
+        for a in l.accessors {
+            accessors.push(match a {
+                cst::Accessor::Field(f)=> Accessor::Field(f),
+                cst::Accessor::Index(e) => Accessor::Index(self.lower_expr(e)?),
+            });
+        }
+        Ok(LValue { name: l.name, accessors })
+    }
+
+    fn lower_expr(&mut self, e: cst::Expr) -> Result<ExprNode,LowerError>{
+        let id = self.expr_id();
+        let span = e.span;
+        let kind = match e.kind {
+            cst::ExprKind::Int(n) => ExprKind::Int(n),
+            cst::ExprKind::Float(n) => ExprKind::Float(n),
+            cst::ExprKind::Str(s) => ExprKind::Str(s),
+            cst::ExprKind::Bool(b) => ExprKind::Bool(b),
+            cst::ExprKind::Color(c) => ExprKind::Color(c),
+            cst::ExprKind::Size(n,u) => ExprKind::Size(n, u),
+            cst::ExprKind::Ident(s) => ExprKind::Ident(s),
+            cst::ExprKind::List(items) => {
+                let mut out = Vec::with_capacity(items.len());
+                for it in items {
+                    out.push(self.lower_expr(it)?);
+                }
+                ExprKind::List(out)
+            }
+            cst::ExprKind::StructLit { type_name, fields } =>{
+                let mut out = Vec::with_capacity(fields.len());
+                for (n,v) in fields {
+                    out.push((n, self.lower_expr(v)?));
+                }
+                ExprKind::StructLit { type_name, fields: out }
+            }
+            cst::ExprKind::Unary { op, expr } => {
+                ExprKind::Unary { op: lower_unary_op(op), expr: Box::new(self.lower_expr(*expr)?) }
+            }
+            cst::ExprKind::Binary { op, lhs, rhs } => ExprKind::Binary { op: lower_binary_op(op), lhs: Box::new(self.lower_expr(*lhs)?), rhs: Box::new(self.lower_expr(*rhs)?) },
+            cst::ExprKind::Call { callee, args } => {
+                ExprKind::Call {callee:Box::new(self.lower_expr(*callee)?), args: self.lower_args(args)?}
+            }
+            cst::ExprKind::Field { base, name } => {
+                ExprKind::Field { base: Box::new(self.lower_expr(*base)?), name }
+            }
+            cst::ExprKind::Index {base, index} => ExprKind::Index { base: Box::new(self.lower_expr(*base)?), index: Box::new(self.lower_expr(*index)?) },
+            cst::ExprKind::AwaitFetch { type_args, url } => {
+                ExprKind::AwaitFetch { type_arg: lower_type(type_args), url: Box::new(self.lower_expr(*url)?) }
+            }
+            cst::ExprKind::Await { expr } => ExprKind::Await { expr: Box::new(self.lower_expr(*expr)?) },
+            
+    };
+    Ok(ExprNode { id, span, kind } )
+
+
+    }
+    fn lower_stmt(&mut self, s: cst::Stmt) -> Result<Stmt,LowerError>{
+        Ok(match s {
+            cst::Stmt::Let {name, name_span, ty,value} => {
+                Stmt::Let { name, name_span, ty: ty.map(lower_type), value: self.lower_expr(value)? }
+            }
+            cst::Stmt::Assign {target, value} => {
+                Stmt::Assign { target: self.lower_lvalue(target)?, value: self.lower_expr(value)? }
+            }
+            cst::Stmt::If { cond, then_branch, else_branch }=> Stmt::If { cond: self.lower_expr(cond)?, then_branch: self.lower_stmt_list(then_branch)?, else_branch: else_branch.map(|b| self.lower_stmt_list(b)).transpose()?,},
+            cst::Stmt::For {var, var_span,iter, body} => Stmt::For { var, var_span, iter: self.lower_expr(iter)?, body: self.lower_stmt_list(body)?, },
+            cst::Stmt::While { cond, body } => Stmt::While { cond: self.lower_expr(cond)?, body: self.lower_stmt_list(body)? },
+            cst::Stmt::Return(e) => Stmt::Return(e.map(|e| self.lower_expr(e)).transpose()?),
+            cst::Stmt::Assert { expr, span } => Stmt::Assert { expr: self.lower_expr(expr)?, span },
+            cst::Stmt::Expr(e) => Stmt::Expr(self.lower_expr(e)?)
+                
+            
+        })
+
+    }
+
+    fn lower_stmt_list(&mut self, stmts: Vec<cst::Stmt>) -> Result<Vec<Stmt>,LowerError>{
+        stmts.into_iter().map(|s|self.lower_stmt(s)).collect()
+
+    }
+}
+
+    fn lower_element_kind(k: cst::NodeKind)-> ElementKind {
+        match k {
+            cst::NodeKind::Button => ElementKind::Button,
+            cst::NodeKind::Card => ElementKind::Card,
+            cst::NodeKind::Checkbox => ElementKind::Checkbox,
+            cst::NodeKind::Column => ElementKind::Column,
+            cst::NodeKind::Container => ElementKind::Container,
+            cst::NodeKind::Dialog => ElementKind::Dialog,
+            cst::NodeKind::Dropdown => ElementKind::Dropdown,
+            cst::NodeKind::Grid => ElementKind::Grid,
+            cst::NodeKind::Icon => ElementKind::Icon,
+            cst::NodeKind::Image => ElementKind::Image,
+            cst::NodeKind::Input => ElementKind::Input,
+            cst::NodeKind::List => ElementKind::List,
+            cst::NodeKind::Menu => ElementKind::Menu,
+            cst::NodeKind::Modal => ElementKind::Modal,
+            cst::NodeKind::Navigation => ElementKind::Navigation,
+            cst::NodeKind::Radio => ElementKind::Radio,
+            cst::NodeKind::Row => ElementKind::Row,
+            cst::NodeKind::Slot => ElementKind::Slot,
+            cst::NodeKind::Stack => ElementKind::Stack,
+            cst::NodeKind::Switch => ElementKind::Switch,
+            cst::NodeKind::Table => ElementKind::Table,
+            cst::NodeKind::Tabs => ElementKind::Tabs,
+            cst::NodeKind::Text => ElementKind::Text,
+            cst::NodeKind::Textarea => ElementKind::Textarea
+            
+        }
+    }
+
+    fn lower_unary_op(op: cst::UnaryOp)->  UnaryOp {
+        match op {
+            cst::UnaryOp::Neg=> UnaryOp::Neg,
+            cst::UnaryOp::Not => UnaryOp::Not,
+        }
+    }
+
+    fn lower_binary_op(op: cst::BinaryOp) -> BinaryOp {
+        match op {
+            cst::BinaryOp::Add => BinaryOp::Add,
+            cst::BinaryOp::And => BinaryOp::And,
+            cst::BinaryOp::Div => BinaryOp::Div,
+            cst::BinaryOp::Eq => BinaryOp::Eq,
+            cst::BinaryOp::Gt => BinaryOp::Gt,
+            cst::BinaryOp::GtEq => BinaryOp::GtEq,
+            cst::BinaryOp::Lt => BinaryOp::Lt,
+            cst::BinaryOp::LtEq => BinaryOp::LtEq,
+            cst::BinaryOp::Mod => BinaryOp::Mod,
+            cst::BinaryOp::Mul => BinaryOp::Mul,
+            cst::BinaryOp::NotEq => BinaryOp::NotEq,
+            cst::BinaryOp::Or => BinaryOp::Or,
+            cst::BinaryOp::Sub => BinaryOp::Sub,
+            
+        }
+    }
+
+    fn lower_type(t: cst::TypeExpr)-> TypeExpr{
+        match t {
+            cst::TypeExpr::Bool => TypeExpr::Bool,
+            cst::TypeExpr::Color => TypeExpr::Color,
+            cst::TypeExpr::Float => TypeExpr::Float,
+            cst::TypeExpr::Int => TypeExpr::Int,
+            cst::TypeExpr::List(inner) => TypeExpr::List(Box::new(lower_type(*inner))),
+            cst::TypeExpr::Map(k,v ) => TypeExpr::Map(Box::new(lower_type(*k)), Box::new(lower_type(*v))),
+            cst::TypeExpr::Option(inner)=> TypeExpr::Option(Box::new(lower_type(*inner))),
+            cst::TypeExpr::Named(n) =>TypeExpr::Named(n),
+            cst::TypeExpr::Size => TypeExpr::Size,
+            cst::TypeExpr::String => TypeExpr::String,
+            cst::TypeExpr::Void => TypeExpr::String,
+        }
+    }
 
      
 
-}
+
 
 
 
