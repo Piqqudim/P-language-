@@ -94,7 +94,7 @@ pub enum TokenKind {
     Color(String),
     Size(f64, SizeUnit),
 
-
+ 
     //Identifier
     Ident(String),
 
@@ -194,9 +194,9 @@ pub enum TokenKind {
     Dot, // .
     LParen, // (
     RParen, // )
-    LBracket, // {
-    RBracket,
-    LBrace,
+    LBracket, // [
+    RBracket, // ]
+    LBrace,  // {
     RBrace, // }
     Arrow, // ->
     FatArrow, // =>

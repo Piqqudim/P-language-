@@ -380,7 +380,7 @@ impl <'a> Lexer<'a> {
         //Dont match a prefic of a longer identifier , e.g "px" inside "pixels".
         !matches!(self.peek_at(offset), Some(c) if c.is_ascii_alphanumeric())
     }
-
+    // it scans 
     fn scan_indent_or_keyword(&mut self){
         let start = self.here();
         let mut text = String::new();
@@ -426,6 +426,15 @@ impl <'a> Lexer<'a> {
                 self.paren_depth -= 1 ;
                 TokenKind::RBracket
             }
+            '{' => {
+                self.paren_depth += 1;
+                TokenKind::LBrace
+            }
+            '}' => {
+                self.paren_depth -= 1;
+                TokenKind::RBrace
+            },
+
             '+' => TokenKind::Plus,
             
             '*' => TokenKind::Star,

@@ -323,7 +323,9 @@ impl<'t> Parser<'t> {
 
         };
         let path = self.expect_string()?;
-        let body_ty = if self.eat(&TokenKind::Body){Some(self.parse_type_expr()?)} else { None};
+        let body_ty = if self.eat(&TokenKind::Body){ 
+             self.expect(TokenKind::Colon)?;
+             Some(self.parse_type_expr()?)} else { None};
         self.expect(TokenKind::Arrow)?;
         let ret = self.parse_type_expr()?;
         self.expect(TokenKind::Newline)?;
@@ -430,12 +432,17 @@ impl<'t> Parser<'t> {
             })
         }
         fn parse_ui_node(&mut self)->Result<UiNode,ParseError>{
+             eprintln!(">>> ENTER parse_ui_node: {:?}", self.peek());
+
             let start = self.peek_span();
             if let Some(kind) = self.node_kind_from_token(){
                 self.advance();
                 let inline_arg = if matches!(self.peek(),TokenKind::Newline){ None} else { Some(self.parse_expr()?)};
                 self.expect(TokenKind::Newline)?;
+                eprintln!(">>> BEFORE parse_node_body: {:?}", self.peek());
                 let body = self.parse_node_body()?;
+                eprintln!(">>> AFTER parse_node_body");
+
                 let span = start.to(self.last_span);
                 return Ok(UiNode::Kind { kind, inline_arg, body, span });
             }
@@ -467,6 +474,8 @@ impl<'t> Parser<'t> {
 
         }
         fn parse_node_body_item(&mut self)->Result<NodeBodyItem,ParseError>{
+              eprintln!(">>> ENTER parse_node_body_item: {:?}", self.peek());
+
             match self.peek().clone(){
                 TokenKind::On => self.parse_event_stmt().map(NodeBodyItem::Event),
                 TokenKind::If => self.parse_if_node().map(NodeBodyItem::If),
@@ -484,14 +493,19 @@ impl<'t> Parser<'t> {
         }
 
         fn parse_property_stmt(&mut self)-> Result<PropertyStmt,ParseError>{
+            eprintln!(">>> ENTER parse_property_stmt");
+            eprintln!("    current = {:?}", self.peek());
             let start = self.peek_span();
             let name = self.expect_ident()?;
+             eprintln!("    property name = {name}");
+             eprintln!("    value token = {:?}", self.peek());
             let mut values = vec![self.parse_expr()?];
             while values.len() < 4 && !matches!(self.peek(),TokenKind::Newline){
                 values.push(self.parse_expr()?);
             }
             self.expect(TokenKind::Newline)?;
             let span = start.to(self.last_span);
+
             Ok(PropertyStmt { name, values, span })
         }
 
@@ -936,6 +950,10 @@ impl<'t> Parser<'t> {
                     let span = start.to(inner.span);
                     Ok(Expr { kind: ExprKind::Await { expr: Box::new(inner) }, span })
                 }
+            }
+            TokenKind::Body=> {
+                self.advance();
+                Ok(Expr { kind: ExprKind::Ident("body".to_string()), span: start })
             }
             TokenKind::Ident(s)=> {
                 self.advance();

@@ -485,6 +485,105 @@ impl Lowerer {
         }
     }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use p_lexer::{FileId,tokenize};
+    use p_parser::parse;
+
+    fn lower_src(src: &str) -> Module{
+        let tokens = tokenize(src,FileId(0)).expect("lex ok");
+        let cst = parse(&tokens).expect("parse ok");
+        lower(cst).expect("lower ok")
+    }
+
+    #[test]
+    fn implicit_wrap_applies_when_page_has_multiple_roots(){
+        let module = lower_src("page Home\n  text \"a\"\n  test \"b\"\n");
+        let NodeKind::Element { kind:ElementKind::Column, children, .. } = &module.pages[0].root.kind else {
+            panic!()
+        };
+        assert_eq!(children.len(), 2); 
+    }
+
+    #[test]
+    fn dynamic_path_params_precede_body_and_has_body_is_explicit(){
+        let module = lower_src(
+            "struct NewLabel\n  label: String\n\nstruct Task\n  id:Int\n  label: String\n\nroute PUT \"/api/tasks/:id\" body: NewLabel -> Task\n  return Task { id: 1, label:body.label }\n",
+        );
+        dbg!(&module.routes);
+        let r = &module.routes[0];
+        dbg!(&r.params[0]);
+        assert_eq!(r.params.len(), 2);
+        assert_eq!(r.params[0].name,"id");
+        dbg!(&r.params[1]);
+        assert_eq!(r.params[1].name, "body");
+        dbg!(&r.has_body);
+        assert!(r.has_body);
+    }
+
+    #[test]
+    fn path_only_route_has_body_false_not_inferred_from_params_len(){
+
+        let module = lower_src(
+            "struct T\n  id: Int\n\nroute GET \"/api/tasks/:id\" -> T\n  return T { id: 1 }\n",
+        );
+        let r = &module.routes[0];
+        assert_eq!(r.params.len(),1);
+        assert!(!r.has_body);
+    }
+
+    #[test]
+
+    fn colliding_path_param_and_body_name_is_rejected(){
+        let tokens = tokenize(
+           "struct T\n  x:Int\n\nroute POST \"/api/:body\" body: T -> T\n  return body\n" , 
+            FileId(0)).unwrap();
+        let cst = parse(&tokens).unwrap();
+        let err = lower(cst).unwrap_err();
+        assert!(matches!(err,LowerError::DuplicateRouteParam { .. }));
+    }
+
+    #[test]
+    fn extern_export_defaults_to_declared_name_when_as_omitted(){
+        let module = lower_src("extern fn hashSync(s: String) -> String server npm \"bcrypt\"\n");
+        let ExternTarget::ServerNpm {  export, .. } = &module.externs[0].target else {
+            panic!()
+        };
+        assert_eq!(export,"hashSync");
+    }
+
+    #[test]
+    fn test_decl_lowers_with_structural_type_only(){
+        let module = lower_src("struct Task\n  id: Int\n\nstore tasks: List<Task>\n");
+        assert_eq!(module.stores[0].name,"tasks");
+        assert!(matches!(module.stores[0].ty,TypeExpr::List(_)));
+    }
+
+    #[test]
+    fn test_decl_and_assert_stmt_survive_lowering(){
+        let module = lower_src(
+            "fn double(x: Int) -> Int\n  return x * 2\n\ntest \"doubles\"\n  let r = double(3)\n  assert r == 6\n",
+        );
+        assert_eq!(module.tests[0].description,"doubles");
+        assert!(matches!(module.tests[0].body[1], Stmt::Assert { .. }));
+    }
+
+    #[test]
+    fn two_value_property_is_still_rejected_with_a_real_span(){
+        let tokens = tokenize(
+            "page Home\n  column\n    padding 8px 16px\n", 
+            FileId(0)).unwrap();
+        let cst = parse(&tokens).unwrap();
+        let err = lower(cst).unwrap_err();
+        assert!(matches!(err,LowerError::InvalidPropertyArity { found : 2, .. }));
+    }
+
+    
+
+}
+
      
 
 

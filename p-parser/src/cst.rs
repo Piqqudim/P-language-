@@ -286,6 +286,8 @@ pub enum UnaryOp{Neg, Not}
 #[derive(Debug,Clone,Copy,PartialEq)]
 pub enum BinaryOp {Or, And, Eq, NotEq, Lt, Gt, LtEq, GtEq, Add, Sub, Mul, Div, Mod}
 
+
+//TypeExpression
 #[derive(Debug, Clone,  PartialEq)]
 pub enum TypeExpr {
     Int, Float, String, Bool, Color, Size, Void,
@@ -294,6 +296,9 @@ pub enum TypeExpr {
     Option(Box<TypeExpr>),
     Named(String),
 }
+
+
+//Statement
 
 #[derive(Debug,Clone,PartialEq)]
 pub enum Stmt{
