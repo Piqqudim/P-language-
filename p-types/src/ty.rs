@@ -1,7 +1,12 @@
-use p_ast::BinaryOp::Or;
 use p_ast::TypeExpr;
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::fmt;
+
+#[derive(Debug,Clone,PartialEq)]
+pub enum NamedKind{
+    Enum,
+    Struct
+}
 
 #[derive(Debug,Clone,PartialEq)]
 pub enum Ty {
@@ -16,6 +21,7 @@ pub enum Ty {
     Map(Box<Ty>, Box<Ty>),
     Option(Box<Ty>),
     Enum(String),
+    Struct(String),
 
     //If a following type is unknown ,  we can actually declared it with Ty::Unknown
     Unknown
@@ -43,12 +49,13 @@ impl fmt::Display for Ty {
             Ty::Map(k, v) => write!(f, "Map<{k},{v}>"),
             Ty::Option(t) => write!(f, "Option<{t}>"),
             Ty::Enum(n) => write!(f,"{n}"),
+            Ty::Struct(n) => write!(f,"{n}"),
             Ty::Unknown => write!(f,"?"),
         }
     }
 }
 
-pub fn lower_type_expr(t: &TypeExpr, enum_names: &HashSet<String>) ->(Ty,Option<String>){
+pub fn lower_type_expr(t: &TypeExpr, named_type: &HashMap<String,NamedKind>) ->(Ty,Option<String>){
     match t {
         TypeExpr::Int =>(Ty::Int, None),
         TypeExpr::Float => (Ty::Float,None),
@@ -58,15 +65,25 @@ pub fn lower_type_expr(t: &TypeExpr, enum_names: &HashSet<String>) ->(Ty,Option<
         TypeExpr::Size => (Ty::Size,None),
         TypeExpr::Void => (Ty::Void, None),
         TypeExpr::List (inner) => {
-            let(t, unknown) =lower_type_expr(inner, enum_names);
+            let(t, unknown) =lower_type_expr(inner, named_type);
             (Ty::List(Box::new(t)),unknown)
-        }
+        },
         TypeExpr::Map(k,v )=> {
-            let (kt, ku) = lower_type_expr(k, enum_names);
-            let (vt, vu) = lower_type_expr(v, enum_names);
-            (Ty::Map(Box::new(kt), Box::new(vt)), ku)
+            let (kt, ku) = lower_type_expr(k, named_type);
+            let (vt, vu) = lower_type_expr(v, named_type);
+            (Ty::Map(Box::new(kt), Box::new(vt)), ku.or(vu))
             
+        },
+        TypeExpr::Option(inner)=> {
+            let(t, unknown) = lower_type_expr(inner, named_type);
+            (Ty::Option(Box::new(t)),unknown)
+        }
+        TypeExpr::Named(n) => match named_type.get(n){
+            Some(NamedKind::Enum) => (Ty::Enum(n.clone()), None),
+            Some(NamedKind::Struct) => (Ty::Struct(n.clone()), None),
+            None => (Ty::Unknown, Some(n.clone()))
+        }
+           
         }
     
     }
-}
