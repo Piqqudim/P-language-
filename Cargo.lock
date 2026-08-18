@@ -11,6 +11,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "p-elementkind"
+version = "0.1.0"
+dependencies = [
+ "p-ast",
+]
+
+[[package]]
 name = "p-lexer"
 version = "0.1.0"
 
