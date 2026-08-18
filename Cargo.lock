@@ -31,6 +31,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "p-source"
+version = "0.1.0"
+dependencies = [
+ "p-lexer",
+]
+
+[[package]]
 name = "p-typeck"
 version = "0.1.0"
 
