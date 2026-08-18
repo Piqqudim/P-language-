@@ -1,0 +1,9 @@
+[package]
+name = "p-sema"
+edition.workspace = true
+version.workspace = true
+
+[dependencies]
+p-lexer = {path = "../p-lexer"}
+p-parser = {path = "../p-parser"}
+p-ast = {path = "../p-ast"}

@@ -20,3 +20,20 @@ version = "0.1.0"
 dependencies = [
  "p-lexer",
 ]
+
+[[package]]
+name = "p-sema"
+version = "0.1.0"
+dependencies = [
+ "p-ast",
+ "p-lexer",
+ "p-parser",
+]
+
+[[package]]
+name = "p-typeck"
+version = "0.1.0"
+
+[[package]]
+name = "p-types"
+version = "0.1.0"

@@ -65,7 +65,7 @@ struct Lexer<'a> {
 
 impl <'a> Lexer<'a> {
     fn new (source: &'a str, file : FileId)-> Self {
-        Self { source, chars: source.char_indices().collect(), idx: 0, line: 1, col: 1, paren_depth: 0, indent_stack: vec![0], indent_unit: None, tokens: Vec::new(), file: file }
+        Self { source, chars: source.char_indices().collect(), idx: 0, line: 1, col: 1, paren_depth: 0, indent_stack: vec![0], indent_unit: None, tokens: Vec::new(), file }
     }
 
    
@@ -87,7 +87,7 @@ impl <'a> Lexer<'a> {
 
     fn here(&self) -> Span {
         let b = self.byte_pos();
-        Span { start: b, end: b , line: self.line, col: self.col, file: FileId(0) }
+        Span { start: b, end: b , line: self.line, col: self.col, file: self.file }
 
     // Advances one character, updating line/col,  Returns the consumed char
     }
@@ -243,17 +243,23 @@ impl <'a> Lexer<'a> {
     // Compares 'spaces' to the current indent stack and emits
     // Indent / Dedent tokens
     fn apply_identation(&mut self, spaces : usize) -> Result<(),LexError>{
+        
         let current = *self.indent_stack.last().unwrap();
+        let delta = spaces.saturating_sub(current);
+        println!("INDENT: line={} col = {} spaces = {} current {} delta {} unit = {:?}", self.line, self.col, spaces, current, delta, self.indent_unit);
+
 
         if spaces > current {
-            let delta = spaces - current;
+            
             match self.indent_unit{
                 Some(unit) => {
                     if delta % unit != 0 {
-                        return Err(LexError::IndentNotMultipleOfUnit { line: self.line, col: self.col , unit });
+                        return Err(LexError::IndentNotMultipleOfUnit { line: self.line, col: self.col , unit});
                     }
                 }
-                None => self.indent_unit = Some(delta),
+                None => { 
+                    println!("SETTING INDENT UNIT = {}", delta);
+                    self.indent_unit = Some(delta);}
             }
             self.indent_stack.push(spaces);
             self.tokens.push(Token::new(TokenKind::Indent, self.here()));
@@ -314,60 +320,116 @@ impl <'a> Lexer<'a> {
         self.tokens.push(Token::new(kind, start));
         Ok(())
     }
+    fn scan_number(&mut self) -> Result<(), LexError> {
+    let start = self.here();
+    let mut text = String::new();
 
-    fn scan_number(&mut self) -> Result<(),LexError>{
-        let start = self.here();
-        let mut text = String::new();
-        while let Some(c) = self.peek(){
-            if c.is_ascii_digit(){
+    // Consume the integer portion first.
+    while let Some(c) = self.peek() {
+        if c.is_ascii_digit() {
+            text.push(c);
+            self.bump();
+        } else {
+            break;
+        }
+    }
+
+    // Optional fractional portion.
+    let mut is_float = false;
+
+    if self.peek() == Some('_')
+        && self.peek_at(1).map_or(false, |c| c.is_ascii_digit())
+    {
+        is_float = true;
+        text.push('.');
+        self.bump();
+
+        while let Some(c) = self.peek() {
+            if c.is_ascii_digit() {
                 text.push(c);
                 self.bump();
             } else {
                 break;
             }
-            let mut is_float = false;
-            if self.peek() == Some('_') && self.peek_at(1).map_or(false, |c| c.is_ascii_digit()){
-                is_float = true ;
-                text.push('.');
+        }
+    }
+
+    // Check for an immediately-following size unit,
+    // longest match first.
+    const UNITS: &[(&str, SizeUnit)] = &[
+        ("px", SizeUnit::Px),
+        ("rem", SizeUnit::Rem),
+        ("em", SizeUnit::Em),
+        ("vw", SizeUnit::Vm),
+        ("vh", SizeUnit::Vh),
+    ];
+
+    for (suffix, unit) in UNITS {
+        if self.matches_ahead(suffix) {
+            for _ in 0..suffix.len() {
                 self.bump();
-                while let Some(c) = self.peek(){
-                    if c.is_ascii_digit(){
-                        text.push(c);
-                        self.bump();
-                    } else {
-                        break ;
-                    }
-                }
             }
 
-            // Check for an immediately-following size unit, longest match first
-            const UNITS : &[(&str, SizeUnit)] = &[("px", SizeUnit::Px),("rem", SizeUnit::Rem),("em",SizeUnit::Em), ("vw", SizeUnit::Vm), ("vh", SizeUnit::Vh)];
-            for (suffix, unit) in UNITS {
-                if self.matches_ahead(suffix) {
-                    for _ in 0..suffix.len(){
-                        self.bump();
-                    }
-                    let value : f64 = text.parse().map_err(|_| LexError::InvalidNumber { line: start.line, col: start.col })?;
-                    self.tokens.push(Token::new(TokenKind::Size(value, *unit), start));
-                    return Ok(())
+            let value: f64 = text.parse().map_err(|_| {
+                LexError::InvalidNumber {
+                    line: start.line,
+                    col: start.col,
                 }
-            }
-            if self.peek() == Some('%'){
-                self.bump();
-                let value : f64 = text.parse().map_err(|_|LexError::InvalidNumber { line: start.line, col: start.col })?;
-                self.tokens.push(Token::new(TokenKind::Size(value,SizeUnit::Percent),start));
-                return Ok(())
-            }
-            if is_float {
-                let value : f64 = text.parse().map_err(|_| LexError::InvalidNumber { line: start.line, col: start.col })?;
-                self.tokens.push(Token::new(TokenKind::Float(value), start));
-            }
-            else {
-                let value : i64 = text.parse().map_err(|_| LexError::InvalidNumber { line: start.line, col: start.col })?;
-                self.tokens.push(Token::new(TokenKind::Int(value), start));
-            }
-        }Ok(())
+            })?;
+
+            self.tokens
+                .push(Token::new(TokenKind::Size(value, *unit), start));
+
+            return Ok(());
+        }
     }
+
+    // Percentage.
+    if self.peek() == Some('%') {
+        self.bump();
+
+        let value: f64 = text.parse().map_err(|_| {
+            LexError::InvalidNumber {
+                line: start.line,
+                col: start.col,
+            }
+        })?;
+
+        self.tokens.push(Token::new(
+            TokenKind::Size(value, SizeUnit::Percent),
+            start,
+        ));
+
+        return Ok(());
+    }
+
+    // Plain number.
+    if is_float {
+        let value: f64 = text.parse().map_err(|_| {
+            LexError::InvalidNumber {
+                line: start.line,
+                col: start.col,
+            }
+        })?;
+
+        self.tokens
+            .push(Token::new(TokenKind::Float(value), start));
+    } else {
+        let value: i64 = text.parse().map_err(|_| {
+            LexError::InvalidNumber {
+                line: start.line,
+                col: start.col,
+            }
+        })?;
+
+        self.tokens
+            .push(Token::new(TokenKind::Int(value), start));
+    }
+
+    Ok(())
+}
+    
+    
     fn matches_ahead(&self, s: &str)->bool {
         let mut offset = 0;
         for expected in s.chars(){

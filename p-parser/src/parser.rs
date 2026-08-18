@@ -1059,6 +1059,9 @@ mod tests {
     use p_lexer::{tokenize,FileId};
 
     fn parse_src(src: &str) -> Module {
+        for (line_no, line) in src.lines().enumerate(){
+            println!("LINE {}: {:?}", line_no +1, line);
+        }
         let tokens = tokenize(src, FileId(0)).expect("lex is Ok");
         parse(&tokens).expect("parse ok")
     }
@@ -1145,6 +1148,46 @@ mod tests {
         assert!(parse(&tokens).is_err());
     }
 
+    #[test]
+    fn parse_stage1_worked(){
+        let src = 
+r#"
+page Home
+    state count : Int  = 0
 
+    column
+        padding 24px
+        spacing 16px
+    text "Hello"
+        fontSize 24
+        fontWeight bold
+
+    text count
+        color "333"
+    row
+        spacing 16
+        button "Refresh"
+            on click increment()
+        button "Reset"
+            on click reset()
+fn increment()-> Void 
+    count = count + 1
+
+fn reset() -> Void 
+    count = 0
+      
+
+
+"#;
+        let module = parse_src(src);
+        dbg!(&module.items.len());
+        assert_eq!(module.items.len(), 3);
+        dbg!(&module.items[0]);
+        assert!(matches!(module.items[0], TopLevelItem::Page(_)));
+        dbg!(&module.items[1]);
+        assert!(matches!(module.items[1], TopLevelItem::Fn(_)));
+    }
+
+  
 
 }
