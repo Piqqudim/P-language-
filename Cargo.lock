@@ -44,3 +44,6 @@ version = "0.1.0"
 [[package]]
 name = "p-types"
 version = "0.1.0"
+dependencies = [
+ "p-ast",
+]
