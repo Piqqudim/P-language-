@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["p-ast","p-lexer", "p-parser", "p-sema", "p-source", "p-typeck", "p-types"]
+members = ["p-ast", "p-elementkind","p-lexer", "p-parser", "p-sema", "p-source", "p-typeck", "p-types"]
 
 [workspace.package]
 edition = "2021"
