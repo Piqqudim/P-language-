@@ -33,6 +33,7 @@ name = "p-sema"
 version = "0.1.0"
 dependencies = [
  "p-ast",
+ "p-elementkind",
  "p-lexer",
  "p-parser",
 ]

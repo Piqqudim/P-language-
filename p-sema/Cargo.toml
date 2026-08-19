@@ -6,4 +6,5 @@ version.workspace = true
 [dependencies]
 p-lexer = {path = "../p-lexer"}
 p-parser = {path = "../p-parser"}
-p-ast = {path = "../p-ast"}
+p-elementkind = {path = "../p-elementkind"}
+p-ast = { path = "../p-ast"}
