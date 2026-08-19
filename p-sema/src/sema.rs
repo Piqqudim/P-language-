@@ -147,6 +147,68 @@ enum FnContext {
     // silently read/write the SAME ./data.sqlite a real running server use
     Test,
 }
+pub fn analyzer(module: &Module) -> SemaResult{
+    let mut a  = Analyzer {
+        fn_names : HashSet::new(),
+        component_names : HashSet::new(),
+        layout_names : HashSet::new(),
+        page_names : HashSet::new(),
+        enum_variants : HashMap::new(),
+        component_params : HashMap::new(),
+        struct_names : HashSet::new(),
+        struct_fields : HashMap::new(),
+        route_keys : HashSet::new(),
+        global_state_names : HashSet::new(),
+        store_names :  HashSet::new(),
+        client_extern_names : HashSet::new(),
+        server_extern_names : HashSet::new(),
+        resolutions: HashMap::new(),
+        errors : Vec::new(),
+
+    };
+    a.collect_globals(module);
+    a.check_layout_used(module);
+
+    for f in &module.fns {
+        a.check_fn(&f.params, &f.body, FnContext::Shared);
+    }
+    for c in &module.components {
+        let mut scope = a.seed_scope(FnContext::ClientOnly);
+        for p in &c.params {
+            scope.insert(p.name.clone(), Resolution::Param);
+        }
+        for s in &c.state_decls {
+            a.check_expr(&s.value, &scope);
+            scope.insert(s.name.clone(), Resolution::State);
+        }
+        for f in &c.fns {
+            a.check_fn(&f.params, &f.body, FnContext::ClientOnly);
+        }
+        a.check_node(&c.root, &scope, false);
+    }
+    for p in &module.pages {
+        let mut scope = a.seed_scope(FnContext::ClientOnly);
+        for s in &p.state_decls {
+            a.check_expr(&s.value, &scope);
+            scope.insert(s.name.clone(), Resolution::State);
+        }
+        for f in &p.fns {
+            a.check_fn(&f.params,&f.body,FnContext::ClientOnly);
+        }
+        a.check_node(&p.root, &scope, false);
+    }
+    for l in &module.layouts {
+        a.check_node(&l.root, &Scope::new(), true);
+    }
+    for r in &module.routes {
+        a.check_fn(&r.params, &r.body, FnContext::Route);
+    }
+    for t in &module.tests {
+        a.check_fn(&[], &t.body, FnContext::Test);
+    }
+    SemaResult { resolutions: a.resolutions, errors: a.errors}
+    
+}
 
 struct Analyzer{
     fn_names: HashSet<String>,
@@ -192,5 +254,455 @@ impl Analyzer {
             }
             self.struct_fields.insert(s.name.clone(), s.fields.iter().map(|(n,_)| n.clone()).collect());
         }
+        for l in &module.layouts {
+            if !self.layout_names.insert(l.name.clone()){
+                self.push(Some(l.name_span),SemaError::DuplicateTopLevelName { name: l.name.clone(), first_kind: "layout", second_kind: "layout" });
+            }
+        }
+        for p in &module.pages{
+            if !self.page_names.insert(p.name.clone()){
+                self.push(Some(p.name_span), SemaError::DuplicateTopLevelName { name: p.name.clone(), first_kind: "page", second_kind: "page" });
+            }
+        }
+        for e in &module.enums {
+            for v in &e.variants{
+                self.enum_variants.insert(v.clone(), e.name.clone());
+            }
+        }
+        for r in &module.routes {
+            let key = (method_str(r.method).to_string(), r.path.clone());
+            if !self.route_keys.insert(key) {
+                self.push(Some(r.method_span), SemaError::DuplicateRoute { method: method_str(r.method).to_string(), path: r.path.clone() });
+            }
+            
+        }
+        // for Persistence
+        for s in &module.stores {
+            if !self.store_names.insert(s.name.clone()){
+                self.push(Some(s.name_span), SemaError::DuplicateTopLevelName { name: s.name.clone(), first_kind: "store", second_kind: "store" });
+            }
+        }
+
+        //JS interop: split by which side the extern is sourced on
+        for e in &module.externs {
+            let names = match &e.target {
+                ExternTarget::ClientGlobal { .. } | ExternTarget::ClientModule { .. } => &mut self.client_extern_names,
+                ExternTarget::ServerNpm { .. } => &mut self.server_extern_names,
+            };
+            if !names.insert(e.name.clone()){
+                self.push(Some(e.name_span), SemaError::DuplicateTopLevelName { name: e.name.clone(), first_kind: "extern", second_kind: "extern" });
+            }
+
+        }
+        for s in &module.state_decls{
+            self.global_state_names.insert(s.name.clone());
+        }
+        for p in &module.pages {
+            for s in &p.state_decls {
+                self.global_state_names.insert(s.name.clone());
+            }
+        }
+        for c in &module.components{
+            for s in &c.state_decls {
+                self.global_state_names.insert(s.name.clone());
+            }
+        }
+       
     }
-}
+
+    fn check_layout_used(&mut self, module : &Module){
+        for p in &module.pages{
+            if let Some(layout) = &p.uses{
+                if !self.layout_names.contains(layout){
+                    self.push(Some(p.name_span), SemaError::UnKnownLayout { page: p.name.clone(), layout: layout.clone() });
+                }
+            }
+        }
+    }
+
+
+    // The entire enforcement mechanism for every visisbility rule in
+    // this crate: what gets seeded into the initial scope IS the
+    //policy. a name never seeded here is simply unresolved in that
+    //context, falling through to the ordinary UnKnownIdentfier
+
+    fn seed_scope(&self, ctx: FnContext) -> Scope {
+        let mut scope = Scope::new();
+        for name in &self.global_state_names{
+            scope.insert(name.clone(), Resolution::State);
+        }
+        match ctx{
+            FnContext::Route => {
+                for name in &self.store_names{
+                    scope.insert(name.clone(), Resolution::Store);
+                }
+                for name in &self.server_extern_names{
+                    scope.insert(name.clone(), Resolution::Extern);
+                }
+            }
+            FnContext::ClientOnly => {
+                for name in &self.client_extern_names{
+                    scope.insert(name.clone(), Resolution::Extern);
+                }
+
+            }
+            FnContext::Test => {
+                for name in &self.server_extern_names{
+                    scope.insert(name.clone(), Resolution::Extern);
+                }
+            }
+            FnContext::Shared => {}
+        }
+        scope
+    }
+
+    fn check_fn(&mut self, params: &[Param], body: &[Stmt], ctx: FnContext){
+        let mut scope = self.seed_scope(ctx);
+        for p in params{
+            scope.insert(p.name.clone(), Resolution::Param);
+        }
+        self.check_stmts(body, &mut scope);
+    }
+
+    fn check_stmts(&mut self, stmts: &[Stmt], scope: &mut Scope){
+        for s in stmts{
+            self.check_stmt(s,scope);
+        }
+    }
+    fn check_stmt(&mut self, s: &Stmt, scope: &mut Scope){
+        match s {
+            Stmt::Let { name, value , ..} => {
+                self.check_expr(value,scope);
+                scope.insert(name.clone(), Resolution::Local);
+            }
+            Stmt::Assign { target, value } => {
+                self.check_expr(value, scope);
+                self.check_assign_target(target, scope);
+            }
+            Stmt::If { cond, then_branch, else_branch } => {
+                self.check_expr(cond, scope);
+                let mut then_scope = scope.clone();
+                self.check_stmts(then_branch, &mut then_scope);
+                if let Some(eb) = else_branch {
+                    let mut else_scope = scope.clone();
+                    self.check_stmts(eb, &mut else_scope);
+                }
+            }
+            Stmt::For { var, iter, body,.. } => {
+                self.check_expr(iter,scope);
+                let mut body_scope = scope.clone();
+                body_scope.insert(var.clone(), Resolution::Local);
+                self.check_stmts(body, &mut body_scope);
+            }
+            Stmt::While { cond, body } =>{
+                self.check_expr(cond, scope);
+                let mut body_scope = scope.clone();
+                self.check_stmts(body, &mut body_scope);
+            }
+            Stmt::Return(Some(e)) => self.check_expr(e, scope),
+            Stmt::Return(None) => {}
+            Stmt::Assert { expr, .. } => self.check_expr(expr,scope),
+            Stmt::Expr(e) => self.check_expr(e, scope),
+
+        }
+    }
+
+    fn check_assign_target(&mut self, target: &LValue, scope: &Scope){
+           match scope.get(&target.name){
+                Some(Resolution::Param) => self.push(None, SemaError::AssignToParam { name: target.name.clone() }),
+                Some(Resolution::State) | Some(Resolution::Local) => {}
+                Some(_) | None => self.push(None, SemaError::AssignToUnKnownName { name: target.name.clone() }),
+
+
+           }
+           for acc in &target.accessors{
+            if let Accessor::Index(e) = acc {
+                self.check_expr(e, scope);
+            }
+           }
+
+
+    }
+    fn resolve_ident(&self, name: &str, scope : &Scope) -> Option<Resolution> {
+        if let Some(r) = scope.get(name){
+            return  Some(r.clone());
+        }
+        if self.fn_names.contains(name){
+            return Some(Resolution::Fn);
+        }
+        if self.component_names.contains(name){
+            return Some(Resolution::Component);
+        }
+        if let Some(enum_name) = self.enum_variants.get(name){
+            return Some(Resolution::EnumVariant { enum_name: enum_name.clone() });
+        }
+        if is_builtin_fn(name) {
+            return Some(Resolution::Fn); // parseInt/ awaitAll - checked last , deliberately, so user decls always shadow
+        }
+        None
+    }
+
+    fn check_expr(&mut self, e: &ExprNode, scope: &Scope){
+        match &e.kind {
+            ExprKind::Ident(name)=> match self.resolve_ident(name, scope){
+                Some(Resolution::Store) => self.push(Some(e.span), SemaError::StoreUsedDirectly { name: name.clone() }),
+                Some(Resolution::Extern) => self.push(Some(e.span), SemaError::ExternUsedDirectly { name: name.clone() }),
+                Some(r) => {
+                    self.resolutions.insert(e.id, r);
+                }
+                None => self.push(Some(e.span), SemaError::UnKnownIdentifier { name: name.clone() }),
+            }
+            ExprKind::List(items) => {
+                for it in items {
+                    self.check_expr(it, scope);
+                }
+            }
+            ExprKind::StructLit { type_name, fields } => {
+                if !self.struct_names.contains(type_name){
+                    self.push(Some(e.span), SemaError::UnKnownStruct { name: type_name.clone() });
+                    for(_, v) in fields {
+                        self.check_expr(v, scope);
+                    }
+                    return ;
+                }
+                let declared = self.struct_fields.get(type_name).cloned().unwrap_or_default();
+                let mut seen = HashSet::new();
+                for(fname, fvalue) in fields {
+                    if !declared.contains(fname) {
+                        self.push(
+                            Some(fvalue.span),
+                            SemaError::UnKnownStructField { struct_name: type_name.clone(), field: fname.clone()},
+                        );
+                    } else if !seen.insert(fname.clone()) {
+                        self.push(Some(fvalue.span), SemaError::DuplicateStructField { struct_name: type_name.clone(), field: fname.clone() });
+                    }
+                    self.check_expr(fvalue, scope);
+                }
+                for dname in &declared {
+                    if !fields.iter().any(|(n,_)| n == dname){
+                        self.push(Some(e.span), SemaError::MissingStructField { struct_name: type_name.clone(), field: dname.clone() });
+
+                    }
+                }
+            }
+            ExprKind::Unary {  expr , ..} => self.check_expr(expr, scope),
+            ExprKind::Binary { lhs, rhs, .. } => {
+                self.check_expr(lhs, scope);
+                self.check_expr(rhs, scope);
+            }
+            ExprKind::Call { callee, args } => {
+                // Store method calls (tasks.all()) are recognized
+                // here, BEFORE the generic Ident/Field handling below-
+                //this is the one call shape that needs special structural 
+                // validation (method-name checking) rather 
+                // than falling through to ordinary field-access rules
+                if let ExprKind::Field { base, name:method }= &callee.kind{
+                    if let ExprKind::Ident(store_name) = &base.kind{
+                        if let Some(Resolution::Store) = self.resolve_ident(store_name, scope){
+                            self.resolutions.insert(base.id, Resolution::Store);
+                            const STORE_METHOD : &[&str] = &["all", "find", "insert", "update", "delete"];
+                            if !STORE_METHOD.contains(&method.as_str()){
+                                self.push(Some(callee.span), SemaError::UnKnownStoreMethod { store: store_name.clone(), method: method.clone() });
+                            }
+                            for a in args {
+                                self.check_expr(&a.value, scope);
+                            }
+                            return;
+                        }
+                    }
+                }
+                if let ExprKind::Ident(name) = &callee.kind{
+                    match self.resolve_ident(name, scope) {
+                        Some(Resolution::Fn) => {
+                            self.resolutions.insert(callee.id,Resolution::Fn);
+                        }
+                        Some(Resolution::Component) => self.push(Some(callee.span), SemaError::ComponentCallableAsPlainFunction { name: name.clone() }),
+                        // Extern falls in here too - calling one is
+                        // exactly the shape a Fn call already has , no
+                        // special- casing needed (unlike Store, which needed the .method() syntax handled above)
+                        Some(other) => {
+                            self.resolutions.insert(callee.id, other);
+                        }
+                        None => self.push(Some(callee.span), SemaError::UnKnownCallable { name: name.clone() }),
+                    }
+                }  else {
+                        self.check_expr(callee, scope);
+                    }
+                    for a in args {
+                        self.check_expr(&a.value, scope);
+                    }
+                }
+                  
+                ExprKind::Field { base , ..} => self.check_expr(base, scope),
+                ExprKind::Index { base, index } => {
+                    self.check_expr(base, scope);
+                    self.check_expr(index, scope);
+                }
+                ExprKind::AwaitFetch {  url , ..} => self.check_expr(url, scope),
+                ExprKind::Await { expr } => self.check_expr(expr, scope),
+                ExprKind::Int(_) | ExprKind::Float(_) | ExprKind::Str(_) | ExprKind::Bool(_) | ExprKind::Color(_) | ExprKind::Size(_,_) => {}
+              
+            }
+
+        }
+        fn check_node(&mut self, node: &Node, scope: &Scope, in_layout: bool) {
+            match &node.kind {
+                NodeKind::Element { kind, inline_arg, properties, events, children } => {
+                    if matches!(kind, ElementKind::Slot) && !in_layout{
+                        self.push(Some(node.span), SemaError::SlotUsedOutSideLayout);
+                    }
+                    if let Some(arg) = inline_arg{
+                        self.check_expr(arg, scope);
+                    }
+                    for p in properties {
+                        match &p.value {
+                            PropertyValue::Single(e) => {
+                              let is_bare_keyword =  matches!(e.kind, ExprKind::Ident(_)) &&  is_key_word_enum_property(&p.name);
+                              if !is_bare_keyword {
+                                self.check_expr(e, scope);
+                              }
+                                
+                            }
+                            PropertyValue::Box { top, right, bottom, left } => {
+                                self.check_expr(top, scope);
+                                self.check_expr(right, scope);
+                                self.check_expr(bottom, scope);
+                                self.check_expr(left, scope);
+                            }
+                        }
+                    }
+                    for ev in events {
+                        self.check_event(*kind, ev, scope);
+                    }
+                    for c in children {
+                        self.check_node(c, scope, in_layout);
+                    }
+                }
+                NodeKind::ComponentCall { name, args, children } => {
+                    if !self.component_names.contains(name) {
+                        self.push(Some(node.span), SemaError::UnKnownCallable { name: name.clone() });
+                    } else {
+                        if !children.is_empty(){
+                            self.push(Some(node.span), SemaError::ComponentCallHasChildren { component: name.clone() });
+                        }
+                        self.check_component_args(name, args, node.span);
+                    }
+                    for a in args {
+                        self.check_expr(&a.value, scope);
+                    }
+                    for c in children {
+                        self.check_node(c, scope, in_layout);
+                    }
+                }
+                NodeKind::If { cond, then_branch, else_branch } => {
+                    self.check_expr(cond, scope);
+                for c in then_branch {
+                    self.check_node(c, scope, in_layout);
+                }
+                if let Some(eb) =  else_branch {
+                    for c in eb {
+                        self.check_node(c, scope, in_layout);
+                    }
+                }
+                    
+                }
+                NodeKind::For { var,  iter, body, .. } => {
+                    self.check_expr(iter, scope);
+                    let mut body_scope = scope.clone();
+                    body_scope.insert(var.clone(), Resolution::Local);
+                    for c in body {
+                        self.check_node(c, &body_scope, in_layout);
+                    }
+                }
+                }
+
+
+
+                    
+                
+            }
+
+            fn check_component_args(&mut self, component : &str, args: &[Arg], call_span : Span){
+                let Some(param_names) = self.component_params.get(component).cloned() else { return};
+                let mut seen_named = HashSet::new();
+                let mut positional_count = 0usize;
+                for a  in args {
+                    match &a.name {
+                        Some(n) => {
+                            if !param_names.contains(n) {
+                                self.push(Some(a.value.span), SemaError::UnKnownComponentParam { component: component.to_string(), param: n.clone() });
+                            }
+                            else if !seen_named.insert(n.clone()) {
+                                self.push(
+                                    Some(a.value.span),
+                                    SemaError::DuplicateNamedArgument { component: component.to_string(), arg: n.clone()}
+                                );
+                            }
+
+                        }
+                        None => positional_count += 1,
+                    }
+                }
+                if positional_count > param_names.len(){
+                    self.push(Some(call_span), SemaError::TooManyPositionalArgs { component: component.to_string(), expected: param_names.len(), found: positional_count});
+                }
+
+            }
+
+            fn check_event(&mut self, kind: ElementKind, ev: &Event, scope: &Scope){
+                if !allowed_events(kind).contains(&ev.name.as_str()){
+                    self.push(None, SemaError::UnKnownEvent { element: attr_name(kind).to_string(), event: ev.name.clone() });
+                }
+                match &ev.handler {
+                    EventHandler::Call(e) => self.check_expr(e, &scope),
+                    EventHandler::Lambda { params, body } => {
+                        let mut lambda_scope = scope.clone();
+                        for p in params{
+                            lambda_scope.insert(p.clone(), Resolution::Local);
+                        }
+                        match body {
+                            LambdaBody::Expr(e) => self.check_expr(e, &lambda_scope),
+                            LambdaBody::Assign { target, value } => {
+                                self.check_expr(value, &lambda_scope);
+                                self.check_assign_target(target, &lambda_scope);
+                            }
+                        }
+                    }
+                }
+            }
+
+        }
+fn method_str(m: HttpMethod) -> &'static str {
+    match m {
+                HttpMethod::Get => "GET",
+                HttpMethod::Post => "POST",
+                HttpMethod::Put => "PUT",
+                HttpMethod::Delete => "DELETE",
+                HttpMethod::Patch => "PATCH"
+            }
+        }
+
+fn is_key_word_enum_property(name: &str) -> bool {
+    matches!(name, "align" | "justify" |"fontweight")
+        }
+
+
+        //the first true language builtins- recognized here at name- resolution
+        fn is_builtin_fn(name: &str) -> bool {
+            matches!(name, "parseInt" | "awaitAll")
+        }
+        fn allowed_events(kind: ElementKind)-> &'static [&'static str] {
+            use ElementKind::*;
+            match kind {
+                Button => &["click"],
+                Input | Textarea | Dropdown => &["change", "focus", "blur"],
+                Checkbox | Switch | Radio =>  &["change"],
+                Row | Column | Stack | Container | Card | Grid | List | Table => &["click", "hover"],
+                Navigation | Tabs | Menu => &["click"],
+                Dialog | Modal => &["click"],
+                Text | Image | Icon | Slot => &[],
+
+                
+            }
+        }
+    
