@@ -706,3 +706,88 @@ fn is_key_word_enum_property(name: &str) -> bool {
             }
         }
     
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use p_ast::lower;
+    use p_lexer::{FileId,  tokenize};
+    use p_parser::parse;
+
+    fn analyze_src(src: &str) -> SemaResult {
+        let tokens = tokenize(src, FileId(0)).unwrap();
+        let cst = parse(&tokens).unwrap();
+        let module = lower(cst).unwrap();
+        analyzer(&module)
+    }
+
+    #[test]
+    fn stage1_no_failed_scope_bug(){
+        let src =
+r#"
+page Home
+    state count: Int = 0
+
+    text count
+
+fn increment()-> Void
+
+        count = count + 1
+
+
+
+
+"#;
+        let r = analyze_src(src);
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+    }
+    #[test]
+    fn store_visible_in_route(){
+        let src = 
+r#"
+struct T
+    id: Int
+
+
+store ts: List<T>
+
+route GET "x" -> T
+    return ts.all()
+
+
+
+
+
+
+"#;
+        let good = analyze_src(src);
+        assert!(good.errors.is_empty(), "{:?}", good.errors);
+
+    }
+    #[test]
+    fn server_extern_visible_in_route_not_test(){
+        let src = 
+r#"
+struct Dealer
+    id: Int
+    age: Int
+    name: String
+    dealer: Owner
+
+struct Owner
+    name: String
+
+
+extern fn hashSync(s: String) -> String server npm "bcrypt"
+
+route POST "/dealer" -> Dealer
+    let h = hashSync("pw")
+    return Dealer {id: 1, age: 20, name: "Acme", dealer: Owner{ name: "Ty"} }
+
+
+
+"#;
+        let good = analyze_src(src);
+        assert!(good.errors.is_empty(), "{:?}", good.errors);
+    }
+
+}
