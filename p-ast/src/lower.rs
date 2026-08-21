@@ -151,7 +151,9 @@ impl Lowerer {
         let root = self.wrap_or_single(p.root)?;
         Ok(PageDecl { name: p.name, name_span: p.name_span, uses: p.uses, state_decls, fns, root })
     }
-
+    // We are giving the tree type node for httpmethod
+    // HttpMethods are just for future reference to support little applications that wants to extend P
+    // to be a backend language.
     fn lower_method(m: cst::HttpMethod)-> HttpMethod{
         match m {
             cst::HttpMethod::Get=> HttpMethod::Get,
@@ -162,7 +164,7 @@ impl Lowerer {
         }
     }
 
-
+    
     fn extract_path_param_names(path: &str)->Vec<String>{
         path.split('/').filter_map(|seg| seg.strip_prefix(':').map(|n| n.to_string())).collect()
     }
@@ -268,6 +270,9 @@ impl Lowerer {
         }
         Ok((properties, events, children))
     }
+    //Let start with this we are walking down the tree for the property statement defined in a node
+    // PropertyStmt {}
+    //
 
     fn lower_property(&mut self, p: cst::PropertyStmt) -> Result<Property,LowerError>{
         let value = match p.values.len(){

@@ -246,7 +246,7 @@ impl <'a> Lexer<'a> {
         
         let current = *self.indent_stack.last().unwrap();
         let delta = spaces.saturating_sub(current);
-        println!("INDENT: line={} col = {} spaces = {} current {} delta {} unit = {:?}", self.line, self.col, spaces, current, delta, self.indent_unit);
+        
 
 
         if spaces > current {

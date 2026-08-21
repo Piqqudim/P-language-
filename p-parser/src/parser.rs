@@ -432,16 +432,13 @@ impl<'t> Parser<'t> {
             })
         }
         fn parse_ui_node(&mut self)->Result<UiNode,ParseError>{
-             eprintln!(">>> ENTER parse_ui_node: {:?}", self.peek());
 
             let start = self.peek_span();
             if let Some(kind) = self.node_kind_from_token(){
                 self.advance();
                 let inline_arg = if matches!(self.peek(),TokenKind::Newline){ None} else { Some(self.parse_expr()?)};
                 self.expect(TokenKind::Newline)?;
-                eprintln!(">>> BEFORE parse_node_body: {:?}", self.peek());
                 let body = self.parse_node_body()?;
-                eprintln!(">>> AFTER parse_node_body");
 
                 let span = start.to(self.last_span);
                 return Ok(UiNode::Kind { kind, inline_arg, body, span });
@@ -474,7 +471,6 @@ impl<'t> Parser<'t> {
 
         }
         fn parse_node_body_item(&mut self)->Result<NodeBodyItem,ParseError>{
-              eprintln!(">>> ENTER parse_node_body_item: {:?}", self.peek());
 
             match self.peek().clone(){
                 TokenKind::On => self.parse_event_stmt().map(NodeBodyItem::Event),
@@ -493,12 +489,8 @@ impl<'t> Parser<'t> {
         }
 
         fn parse_property_stmt(&mut self)-> Result<PropertyStmt,ParseError>{
-            eprintln!(">>> ENTER parse_property_stmt");
-            eprintln!("    current = {:?}", self.peek());
             let start = self.peek_span();
             let name = self.expect_ident()?;
-             eprintln!("    property name = {name}");
-             eprintln!("    value token = {:?}", self.peek());
             let mut values = vec![self.parse_expr()?];
             while values.len() < 4 && !matches!(self.peek(),TokenKind::Newline){
                 values.push(self.parse_expr()?);
@@ -1086,9 +1078,6 @@ mod tests {
         let src = "extern fn parseISO(s: String) -> Int client module \"https://esm.sh/date-fns\" as \"parseISO\"\n";
         let module = parse_src(src);
         let TopLevelItem::Extern(e) = &module.items[0] else  {panic!()};
-        dbg!(&e.target);
-        dbg!(&module.items[0]);
-
         assert!(matches!(&e.target,ExternTarget::ClientModule { url, export: Some(ex) } if url == "https://esm.sh/date-fns" && ex == "parseISO"));
     }
 
@@ -1105,10 +1094,6 @@ mod tests {
         let src = "fn double(x:Int) -> Int\n   return x * 2\n\ntest \"doubles correctly\"\n   let r = double(3)\n   assert r == 6\n";
         let module = parse_src(src);
         let TopLevelItem::Test(t) = &module.items[1] else { panic!()};
-        dbg!(&module.items[1]);
-        dbg!(&t.description);
-
-
         assert_eq!(t.description,"doubles correctly");
         assert!(matches!(t.body[1], Stmt::Assert { .. }));
     }
@@ -1129,14 +1114,13 @@ mod tests {
     fn lambda_assignment_still_parses(){
         let src = "page Home\n  state username: String = \"\"\n  input username\n    on change(val) => username = val\n";
         let module = parse_src(src);
-        dbg!(&module.items[0]);
         
         let TopLevelItem::Page(p) = &module.items[0] else {panic!()};
-        dbg!(&p.root[0]);
+        
         let UiNode::Kind { body, .. } = &p.root[0] else {panic!()};
-        dbg!(&body[0]);
+        
         let NodeBodyItem::Event(ev) = &body[0] else {panic!()};
-        dbg!(&ev.handler);
+        
 
         assert!(matches!(&ev.handler,EventHandler::Lambda {  body : LambdaBody::Assign { .. }, .. }));
     }
@@ -1180,11 +1164,8 @@ fn reset() -> Void
 
 "#;
         let module = parse_src(src);
-        dbg!(&module.items.len());
         assert_eq!(module.items.len(), 3);
-        dbg!(&module.items[0]);
         assert!(matches!(module.items[0], TopLevelItem::Page(_)));
-        dbg!(&module.items[1]);
         assert!(matches!(module.items[1], TopLevelItem::Fn(_)));
     }
 
