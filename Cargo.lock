@@ -29,6 +29,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "p-props"
+version = "0.1.0"
+
+[[package]]
 name = "p-sema"
 version = "0.1.0"
 dependencies = [
@@ -48,6 +52,12 @@ dependencies = [
 [[package]]
 name = "p-typeck"
 version = "0.1.0"
+dependencies = [
+ "p-ast",
+ "p-lexer",
+ "p-sema",
+ "p-types",
+]
 
 [[package]]
 name = "p-types"

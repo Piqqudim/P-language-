@@ -4,3 +4,7 @@ edition.workspace = true
 version.workspace = true
 
 [dependencies]
+p-lexer = {path = "../p-lexer"}
+p-ast = {path = "../p-ast"}
+p-sema = { path = "../p-sema"}
+p-types = { path = "../p-types"}

@@ -761,7 +761,7 @@ route GET "x" -> T
 "#;
         let good = analyze_src(src);
         assert!(good.errors.is_empty(), "{:?}", good.errors);
-
+ 
     }
     #[test]
     fn server_extern_visible_in_route_not_test(){

@@ -164,7 +164,7 @@ impl Lowerer {
         }
     }
 
-    
+
     fn extract_path_param_names(path: &str)->Vec<String>{
         path.split('/').filter_map(|seg| seg.strip_prefix(':').map(|n| n.to_string())).collect()
     }
@@ -517,14 +517,10 @@ mod tests {
         let module = lower_src(
             "struct NewLabel\n  label: String\n\nstruct Task\n  id:Int\n  label: String\n\nroute PUT \"/api/tasks/:id\" body: NewLabel -> Task\n  return Task { id: 1, label:body.label }\n",
         );
-        dbg!(&module.routes);
         let r = &module.routes[0];
-        dbg!(&r.params[0]);
         assert_eq!(r.params.len(), 2);
         assert_eq!(r.params[0].name,"id");
-        dbg!(&r.params[1]);
         assert_eq!(r.params[1].name, "body");
-        dbg!(&r.has_body);
         assert!(r.has_body);
     }
 
